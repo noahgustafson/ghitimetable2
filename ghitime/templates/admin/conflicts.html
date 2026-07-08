@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sync conflicts{% endblock %}
+{% block content %}
+<h1>Sync conflicts</h1>
+<p class="muted">Same (entry, version) arrived with a different payload than
+what the server already stored. The server copy always wins; the device copy
+is preserved verbatim below for review — nothing is silently reconciled.</p>
+<table>
+  <tr><th>Received</th><th>Person</th><th>Entry</th><th>Device</th><th></th></tr>
+  {% for r in rows %}
+  <tr><td class="mono">{{ r.received_at }}</td><td>{{ r.person_name or '?' }}</td>
+      <td class="mono">{{ r.entry_uuid[:13] }}… v{{ r.version_no }}</td>
+      <td class="mono">{{ r.device_id or '?' }}</td>
+      <td><a class="button" href="{{ url_for('admin.conflict_detail', cid=r.id) }}">Review</a></td></tr>
+  {% else %}<tr><td colspan="5" class="muted">No open conflicts.</td></tr>{% endfor %}
+</table>
+{% endblock %}

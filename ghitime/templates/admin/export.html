@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Exports{% endblock %}
+{% block content %}
+<h1>Exports</h1>
+<p class="muted">All CSV; every money/quantity column is paired with its tag.
+Employees and subcontractors are never mixed — two separate files.</p>
+
+<section class="card">
+  <h2>Bookkeeper payroll-prep</h2>
+  <form method="get" action="{{ url_for('reports.payroll_employees') }}" class="filters">
+    <label>From <input type="date" name="from" required></label>
+    <label>To <input type="date" name="to" required></label>
+    <button class="primary">Employees CSV</button>
+  </form>
+  <form method="get" action="{{ url_for('reports.payroll_subcontractors') }}" class="filters">
+    <label>From <input type="date" name="from" required></label>
+    <label>To <input type="date" name="to" required></label>
+    <button>Subcontractors CSV (separate file, labeled SUBCONTRACTOR)</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Job labor</h2>
+  <form method="get" action="{{ url_for('reports.job_labor') }}" class="filters">
+    <label>From <input type="date" name="from" required></label>
+    <label>To <input type="date" name="to" required></label>
+    <button>Job labor CSV</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Employee record</h2>
+  <form method="get" class="filters" onsubmit="location='/admin/people/'+this.pid.value+'/record.csv'; return false;">
+    <select name="pid">{% for p in people %}<option value="{{ p.id }}">{{ p.display_name }}</option>{% endfor %}</select>
+    <button>Record CSV</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Full export (data ownership)</h2>
+  <p><a class="button primary" href="{{ url_for('reports.full_zip') }}">Every table, CSV + JSON (zip)</a></p>
+  <p class="muted">Also available offline on the server: <code>flask export-all DIR</code>.</p>
+</section>
+{% endblock %}

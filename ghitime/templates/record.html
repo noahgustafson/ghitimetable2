@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Record — {{ person.display_name }}{% endblock %}
+{% block content %}
+<div class="record">
+<h1>Time record — {{ person.display_name }}</h1>
+<p class="muted">Generated {{ generated_at }} (UTC). This record shows every
+entry as first recorded, every later version with author, timestamp and
+reason, every approval, and any post-approval correction — so you can verify
+your hours were never changed without your knowledge.</p>
+<p><a class="button" href="{{ request.path }}.csv">Download CSV</a>
+   <button class="button" onclick="window.print()">Print</button></p>
+
+{% if badges %}
+<div class="card warn">
+  <strong>Badges on this record:</strong>
+  <ul>{% for b in badges %}
+    <li>{{ 'SELF-APPROVED' if b.flag_type == 'self_approval' else 'CORRECTED AFTER APPROVAL' }}
+        — entry {{ b.entry_uuid[:8] }}… at {{ b.created_at }}</li>
+  {% endfor %}</ul>
+</div>
+{% endif %}
+
+<table>
+  <tr><th>Entry</th><th>Event</th><th>At (UTC)</th><th>By</th><th>Status</th>
+      <th>Date</th><th>Times</th><th>Break</th><th>Job</th><th>Reason</th></tr>
+  {% for item in rows %}
+  {% set r = item.row %}
+  {% if item.kind == 'version' %}
+  <tr>
+    <td class="mono">{{ r.entry_uuid[:8] }}…v{{ r.version_no }}</td>
+    <td>version</td><td class="mono">{{ r.server_synced_at }}</td>
+    <td>{{ r.author_name }}</td><td>{{ r.status }}</td><td>{{ r.work_date }}</td>
+    <td>{{ r.start_time }}–{{ r.end_time }}</td><td>{{ r.break_minutes }}m</td>
+    <td>{{ r.job_code }}</td><td>{{ r.change_reason or '' }}</td>
+  </tr>
+  {% else %}
+  <tr class="approval-row">
+    <td class="mono">{{ r.entry_uuid[:8] }}…</td>
+    <td><strong>{{ r.action }}</strong>{% if r.is_self_approval %}
+      <span class="badge">SELF</span>{% endif %}</td>
+    <td class="mono">{{ r.created_at }}</td><td>{{ r.approver_name }}</td>
+    <td colspan="5"></td><td>{{ r.reason or r.flags_ack_reason or '' }}</td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

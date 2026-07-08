@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" class="{% if theme %}theme-{{ theme }}{% endif %}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}GHI-TIME{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#1d3557">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">GHI-TIME</a>
+  {% if user %}
+  <nav>
+    {% if user.is_worker %}
+      <a href="{{ url_for('entries.entry_list') }}">Entries</a>
+      <a href="{{ url_for('entries.capture') }}">Capture</a>
+      <a href="{{ url_for('entries.my_record') }}">My record</a>
+      <a href="{{ url_for('entries.my_rate') }}">My rate</a>
+    {% endif %}
+    {% if user.is_admin %}
+      <a href="{{ url_for('admin.dashboard') }}">Admin</a>
+    {% endif %}
+  </nav>
+  <div class="topbar-right">
+    <form method="post" action="{{ url_for('auth.theme') }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="back" value="{{ request.path }}">
+      <button name="theme" value="{% if theme == 'dark' %}light{% else %}dark{% endif %}"
+              class="ghost" title="Toggle light/dark (saved on this device)">◐</button>
+    </form>
+    <span class="who">{{ user.display_name }}</span>
+    <form method="post" action="{{ url_for('auth.logout') }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="ghost">Sign out</button>
+    </form>
+  </div>
+  {% endif %}
+</header>
+<div id="offline-banner" hidden>Connection lost — this page needs a connection.
+  Time capture still works offline on the <a href="/capture">Capture</a> page.</div>
+{% with msgs = get_flashed_messages() %}
+  {% if msgs %}<ul class="flash">{% for m in msgs %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
+{% endwith %}
+<main>{% block content %}{% endblock %}</main>
+<script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

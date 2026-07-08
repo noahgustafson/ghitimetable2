@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}My entries{% endblock %}
+{% block content %}
+<h1>My entries</h1>
+<form method="get" class="filters">
+  <label>From <input type="date" name="from" value="{{ dfrom }}"></label>
+  <label>To <input type="date" name="to" value="{{ dto }}"></label>
+  <label>Status
+    <select name="status">
+      <option value="">any</option>
+      {% for s in ('draft','submitted','approved','void') %}
+      <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select></label>
+  <button>Filter</button>
+  <a class="button" href="{{ url_for('entries.entry_new') }}">New entry</a>
+</form>
+<table>
+  <tr><th>Date</th><th>Job</th><th>Start–End</th><th>Break</th>
+      <th>Hours <span class="tag">CALC</span></th><th>Status</th><th>Flags</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="{{ url_for('entries.entry_detail', entry_uuid=r.entry_uuid) }}">{{ r.work_date }}</a></td>
+    <td>{{ r.job_code }}</td>
+    <td>{{ r.start_time }}–{{ r.end_time }}</td>
+    <td>{{ r.break_minutes }}m</td>
+    <td>{% if r.worked_minutes is not none %}{{ hours(r.worked_minutes) }}{% else %}
+        <em class="warn">blank</em>{% endif %}</td>
+    <td><span class="status status-{{ r.status }}">{{ r.status }}</span></td>
+    <td>{% for f in flag_map.get(r.entry_uuid, []) %}<span class="badge">{{ f }}</span>{% endfor %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">No entries in this range.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

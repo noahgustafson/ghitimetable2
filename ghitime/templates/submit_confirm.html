@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Submit hours{% endblock %}
+{% block content %}
+<h1>Submit my hours</h1>
+<p>Submitting attests that these entries through today are true and complete:</p>
+<table>
+  <tr><th>Date</th><th>Job</th><th>Start–End</th><th>Break</th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.work_date }}</td><td>{{ r.job_code }}</td>
+      <td>{{ r.start_time }}–{{ r.end_time }}</td><td>{{ r.break_minutes }}m</td></tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">Nothing to submit.</td></tr>
+  {% endfor %}
+</table>
+{% if rows %}
+<form method="post" action="{{ url_for('entries.submit') }}">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <button class="primary big">Submit {{ rows | length }} entr{{ 'y' if rows|length == 1 else 'ies' }}</button>
+</form>
+{% endif %}
+{% endblock %}

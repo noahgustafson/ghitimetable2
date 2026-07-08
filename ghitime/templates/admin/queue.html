@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Approval queue{% endblock %}
+{% block content %}
+<h1>Approval queue</h1>
+{% for key, entries in groups.items() %}
+{% set submission_id, person_name, submitted_at = key %}
+<section class="card">
+  <h2>{{ person_name }} — attested {{ submitted_at or '(no submission record)' }}</h2>
+  <form method="post" action="{{ url_for('admin.approve') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    {% if submission_id %}<input type="hidden" name="submission_id" value="{{ submission_id }}">{% endif %}
+    <table>
+      <tr><th></th><th>Date</th><th>Job</th><th>Times</th><th>Break</th>
+          <th>Hours</th><th>Flags</th><th>Changes</th></tr>
+      {% for e in entries %}
+      <tr>
+        <td><input type="checkbox" name="entry_uuid" value="{{ e.entry_uuid }}" checked></td>
+        <td>{{ e.work_date }}</td><td>{{ e.job_code }}</td>
+        <td>{{ e.start_time }}–{{ e.end_time }}</td><td>{{ e.break_minutes }}m</td>
+        <td>{% if e.worked_minutes is not none %}{{ hours(e.worked_minutes) }}
+            {% else %}<em class="warn">blank</em>{% endif %}</td>
+        <td>{% for f in flag_map.get(e.entry_uuid, []) %}
+            <span class="badge">{{ f }}</span>{% endfor %}</td>
+        <td>{% for d in diffs.get(e.entry_uuid, []) %}
+          <div class="diff">v{{ d.version_no }} ({{ d.change_reason }}):
+            {% for f, (a, b) in d.changed.items() %}{{ f }}: {{ a }}→{{ b }}; {% endfor %}</div>
+        {% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <label>Reason for approving flagged entries (required if any selected entry
+      is flagged) <input name="flags_ack_reason"></label>
+    <button class="primary">Approve selected</button>
+  </form>
+  <form method="post" action="{{ url_for('admin.reject') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    {% for e in entries %}
+      <label class="inline"><input type="checkbox" name="entry_uuid"
+        value="{{ e.entry_uuid }}"> reject {{ e.work_date }}</label>
+    {% endfor %}
+    <input name="reason" placeholder="rejection reason (required)" required>
+    <button class="danger">Reject selected</button>
+  </form>
+</section>
+{% else %}
+<p class="muted">Queue is empty. 🎉</p>
+{% endfor %}
+{% endblock %}

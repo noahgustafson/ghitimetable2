@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Jobs{% endblock %}
+{% block content %}
+<h1>Jobs</h1>
+<table>
+  <tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr>
+  {% for j in rows %}
+  <tr>
+    <td class="mono">{{ j.code }}</td><td>{{ j.name }}</td><td>{{ j.status }}</td>
+    <td>
+      {% if j.status == 'active' %}
+      <form method="post" action="{{ url_for('admin.job_complete', jid=j.id) }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button>Complete</button></form>
+      {% else %}
+      <form method="post" action="{{ url_for('admin.job_reactivate', jid=j.id) }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button>Reactivate</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<h2>Add job</h2>
+<form method="post" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label>Code (short, shows on phones) <input name="code" required></label>
+  <label>Name <input name="name" required></label>
+  <button class="primary">Create</button>
+</form>
+<p class="muted">Only active jobs appear in the phones' offline job picker
+(after their next sync).</p>
+{% endblock %}

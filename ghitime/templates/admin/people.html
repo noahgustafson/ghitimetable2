@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+{% block content %}
+<h1>People</h1>
+<table>
+  <tr><th>Name</th><th>Username</th><th>Roles</th><th>Type</th><th>Active</th></tr>
+  {% for p in rows %}
+  <tr>
+    <td><a href="{{ url_for('admin.person_detail', pid=p.id) }}">{{ p.display_name }}</a></td>
+    <td class="mono">{{ p.username }}</td>
+    <td>{{ 'worker ' if p.is_worker }}{{ 'admin' if p.is_admin }}</td>
+    <td>{{ p.worker_type }}</td>
+    <td>{{ 'yes' if p.active else 'deactivated' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Add person</h2>
+<form method="post" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label>Username <input name="username" required></label>
+  <label>Display name <input name="display_name" required></label>
+  <label>Type
+    <select name="worker_type">
+      <option value="employee">employee</option>
+      <option value="subcontractor">subcontractor</option>
+    </select></label>
+  <label class="inline"><input type="checkbox" name="is_worker" checked> worker</label>
+  <label class="inline"><input type="checkbox" name="is_admin"> admin</label>
+  <label>Temp password (they must change it) <input name="temp_password" minlength="8" required></label>
+  <button class="primary">Create</button>
+</form>
+<p class="muted">No deletes, ever — deactivate instead; the roster is seasonal
+and history stays intact.</p>
+{% endblock %}
