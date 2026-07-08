@@ -188,15 +188,17 @@ dvid = db.execute("SELECT id FROM time_entry_version WHERE entry_uuid='f0000000-
 expect_ok("break_exceeds_duration flag type accepted",
           f"INSERT INTO entry_flag (entry_uuid, trigger_version_id, flag_type, created_at) VALUES ('f0000000-0000-0000-0000-00000000000d',{dvid},'break_exceeds_duration','2026-07-07T05:00:00Z')")
 
-print("ot_policy (effective-dated, append-only):")
-expect_ok("append policy row (threshold 40, multiplier unset)",
-          "INSERT INTO ot_policy (id, threshold_hours, effective_date, entered_by, entered_at) VALUES (1,40,'2026-01-05',1,'2026-07-07T06:00:00Z')")
+print("ot_policy (effective-dated, append-only, no partial rows):")
+expect_abort("partial policy row (multiplier omitted) — absence is the only unset state",
+             "INSERT INTO ot_policy (id, threshold_hours, effective_date, entered_by, entered_at) VALUES (1,40,'2026-01-05',1,'2026-07-07T06:00:00Z')")
+expect_ok("append complete policy row (40h x 1.5)",
+          "INSERT INTO ot_policy (id, threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (1,40,1.5,'2026-01-05',1,'2026-07-07T06:00:00Z')")
 expect_abort("UPDATE ot_policy", "UPDATE ot_policy SET threshold_hours=35 WHERE id=1")
 expect_abort("DELETE ot_policy", "DELETE FROM ot_policy WHERE id=1")
 expect_abort("INSERT OR REPLACE ot_policy id=1",
-             "INSERT OR REPLACE INTO ot_policy (id, threshold_hours, effective_date, entered_by, entered_at) VALUES (1,60,'2026-01-05',1,'2026-07-07T06:01:00Z')")
-expect_abort("threshold_hours = 0", "INSERT INTO ot_policy (threshold_hours, effective_date, entered_by, entered_at) VALUES (0,'2026-07-01',1,'2026-07-07T06:02:00Z')")
-expect_abort("multiplier < 1", "INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (40,0.5,'2026-07-01',1,'2026-07-07T06:03:00Z')")
+             "INSERT OR REPLACE INTO ot_policy (id, threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (1,60,2.0,'2026-01-05',1,'2026-07-07T06:01:00Z')")
+expect_abort("threshold_hours = 0", "INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (0,1.5,'2026-07-01',1,'2026-07-07T06:02:00Z')")
+expect_abort("multiplier = 0", "INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (40,0,'2026-07-01',1,'2026-07-07T06:03:00Z')")
 # same-effective-date correction: both rows preserved, latest entered_at wins in the view
 db.execute("INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (44,1.5,'2026-01-05',1,'2026-07-07T06:04:00Z')")
 row = db.execute("SELECT threshold_hours, multiplier, threshold_tag, multiplier_tag FROM v_ot_policy_effective WHERE effective_date='2026-01-05'").fetchone()

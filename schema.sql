@@ -489,8 +489,8 @@ END;
 -- bookkeeper advises"); never defaulted.
 -- threshold_hours/multiplier are quantities (not money) stored exactly as
 -- entered (SOURCE); app-layer derivations use decimal arithmetic.
--- multiplier may be NULL (unset): the OT *pay preview* additionally requires
--- a multiplier in force for the period, else it renders blank + flagged.
+-- No partial policy rows: threshold and multiplier are both required on
+-- every row — "no policy in force" is represented only by row ABSENCE.
 -- Append-only.
 -- ---------------------------------------------------------------------------
 CREATE TABLE ot_policy (
@@ -499,8 +499,8 @@ CREATE TABLE ot_policy (
                     CHECK (threshold_hours > 0 AND threshold_hours <= 168),
     threshold_tag   TEXT    NOT NULL DEFAULT 'SOURCE'
                     REFERENCES figure_tag(tag) CHECK (threshold_tag = 'SOURCE'),
-    multiplier      NUMERIC
-                    CHECK (multiplier IS NULL OR multiplier >= 1),
+    multiplier      NUMERIC NOT NULL
+                    CHECK (multiplier > 0),
     multiplier_tag  TEXT    NOT NULL DEFAULT 'SOURCE'
                     REFERENCES figure_tag(tag) CHECK (multiplier_tag = 'SOURCE'),
     effective_date  TEXT    NOT NULL CHECK (effective_date IS date(effective_date)),
@@ -545,7 +545,7 @@ CREATE TABLE config (
 INSERT INTO config (key, value, value_tag) VALUES
     ('ot_pay_preview_enabled', '0',  NULL),   -- default off (a switch, not a
                                               -- figure); even enabled, the
-                                              -- preview needs a multiplier in
+                                              -- preview needs an OT policy in
                                               -- force for the period
     ('workweek_start_dow',     NULL, NULL),   -- ships UNSET; set at go-live
     ('pay_period_anchor',      NULL, NULL);   -- reserved; unused in V1
