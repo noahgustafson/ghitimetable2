@@ -12,6 +12,7 @@ sql = open("schema.sql").read()
 db.executescript(sql)
 print("schema loaded OK")
 assert db.execute("PRAGMA recursive_triggers").fetchone()[0] == 0, "test must run with default pragmas"
+assert db.execute("SELECT COUNT(*) FROM ot_policy").fetchone()[0] == 0, "ot_policy must ship empty (no policy in force)"
 
 fails = []
 def expect_abort(desc, stmt, params=()):
@@ -64,11 +65,14 @@ expect_abort("break_minutes omitted (no silent default)",
              "INSERT INTO time_entry_version (entry_uuid,version_no,person_id,job_id,work_date,start_time,end_time,status,author_id,server_synced_at)"
              " VALUES ('f0000000-0000-0000-0000-000000000003',1,2,1,'2026-07-06','08:00','16:00','draft',2,'2026-07-07T01:00:00Z')")
 ins_version(2, "submitted", "Submitted"); print("  ok (allowed): insert v2 submitted with reason")
+expect_abort("v3 reassigning person_id (owner change forbidden)",
+             TEV_COLS + f"('{UUID}',3,1,1,'2026-07-06','08:00','16:00',30,'submitted',1,'reassign attempt','2026-07-07T01:05:00Z')")
+db.execute("INSERT INTO job (id, code, name, created_at, created_by) VALUES (2,'J200','Jones bath','2026-07-07T00:00:00Z',1)")
+expect_ok("v3 same person, different job (job_id stays changeable)",
+          TEV_COLS + f"('{UUID}',3,2,2,'2026-07-06','08:00','16:00',30,'submitted',2,'wrong job picked','2026-07-07T01:06:00Z')")
 
 print("OR REPLACE / UPSERT bypass attempts (recursive_triggers OFF):")
 expect_abort("INSERT OR REPLACE tev reusing rowid id",
-             TEV_COLS.replace("INSERT INTO", "INSERT OR REPLACE INTO").replace("(entry_uuid", "(id,entry_uuid").replace("VALUES ", "VALUES ")
-             .replace("(?,?", "(1,?,?", 1) if False else
              "INSERT OR REPLACE INTO time_entry_version (id,entry_uuid,version_no,person_id,job_id,work_date,start_time,end_time,break_minutes,status,author_id,change_reason,server_synced_at)"
              " VALUES (1,'f0000000-0000-0000-0000-000000000004',1,2,1,'2026-07-06','08:00','16:00',30,'draft',2,NULL,'2026-07-07T01:00:00Z')")
 expect_abort("UPSERT ON CONFLICT DO UPDATE on (uuid,version)",
@@ -91,7 +95,7 @@ expect_abort("UPDATE OR REPLACE person onto other username",
              "UPDATE OR REPLACE person SET username='worker1' WHERE id=1")
 expect_abort("person id change", "UPDATE person SET id=99 WHERE id=2")
 expect_abort("INSERT OR REPLACE config key",
-             "INSERT OR REPLACE INTO config (key, value) VALUES ('ot_threshold_hours_per_week','40')")
+             "INSERT OR REPLACE INTO config (key, value) VALUES ('workweek_start_dow','1')")
 expect_abort("config key rename", "UPDATE config SET key='x' WHERE key='pay_period_anchor'")
 expect_abort("INSERT OR REPLACE figure_tag",
              "INSERT OR REPLACE INTO figure_tag (tag, description) VALUES ('SOURCE','rewritten')")
@@ -100,7 +104,7 @@ expect_abort("INSERT OR REPLACE job via code conflict",
 
 print("views:")
 row = db.execute(f"SELECT version_no, status FROM v_time_entry_current WHERE entry_uuid='{UUID}'").fetchone()
-assert row == (2, "submitted"), f"current view wrong: {row}"
+assert row == (3, "submitted"), f"current view wrong: {row}"
 print(f"  ok: v_time_entry_current -> v{row[0]} {row[1]}")
 row = db.execute(f"SELECT span_minutes, worked_minutes, worked_minutes_tag FROM v_time_entry_minutes WHERE entry_uuid='{UUID}'").fetchone()
 assert row == (480, 450, "CALCULATED"), f"minutes wrong: {row}"
@@ -150,15 +154,28 @@ db.execute("INSERT INTO approval (id, approver_id, action, created_at) VALUES (4
 expect_ok("open badge flag (self_approval) does not gate approval",
           f"INSERT INTO approval_entry (approval_id, entry_uuid, acted_on_version_id) VALUES (4,'{BUUID}',{bvid})")
 
+print("uuid/version coherence:")
+db.execute("INSERT INTO approval (id, approver_id, action, flags_ack_reason, created_at) VALUES (5,1,'approve','ack for coherence tests','2026-07-07T03:16:00Z')")
+expect_abort("approval_entry uuid mismatched to acted_on_version_id",
+             f"INSERT INTO approval_entry (approval_id, entry_uuid, acted_on_version_id) VALUES (5,'{BUUID}',{vid})")
+expect_abort("approval_entry resulting_version_id from another entry",
+             f"INSERT INTO approval_entry (approval_id, entry_uuid, acted_on_version_id, resulting_version_id) VALUES (5,'{UUID}',{vid},{bvid})")
+expect_abort("approval_entry with dangling acted_on_version_id",
+             f"INSERT INTO approval_entry (approval_id, entry_uuid, acted_on_version_id) VALUES (5,'{UUID}',99999)")
+expect_abort("entry_flag uuid mismatched to trigger_version_id",
+             f"INSERT INTO entry_flag (entry_uuid, trigger_version_id, flag_type, created_at) VALUES ('{BUUID}',{vid},'overlap','2026-07-07T03:17:00Z')")
+expect_abort("entry_flag with dangling trigger_version_id",
+             f"INSERT INTO entry_flag (entry_uuid, trigger_version_id, flag_type, created_at) VALUES ('{UUID}',99999,'overlap','2026-07-07T03:17:00Z')")
+
 print("person/job/config protection:")
 expect_abort("DELETE person", "DELETE FROM person WHERE id=2")
 expect_abort("DELETE job", "DELETE FROM job WHERE id=1")
-expect_abort("DELETE config key", "DELETE FROM config WHERE key='ot_multiplier'")
+expect_abort("DELETE config key", "DELETE FROM config WHERE key='ot_pay_preview_enabled'")
 expect_ok("deactivate person", "UPDATE person SET active=0 WHERE id=2")
 expect_ok("legit username rename", "UPDATE person SET username='worker1b' WHERE id=2")
-row = db.execute("SELECT COUNT(*) FROM config WHERE key='ot_threshold_hours_per_week' AND value IS NULL AND value_tag='SOURCE'").fetchone()
-assert row[0] == 1, "OT threshold must ship unset with SOURCE tag"
-print("  ok: OT threshold ships unset (NULL) with SOURCE value_tag")
+row = db.execute("SELECT COUNT(*) FROM config WHERE key='workweek_start_dow' AND value IS NULL").fetchone()
+assert row[0] == 1, "workweek_start_dow must ship unset"
+print("  ok: workweek_start_dow ships unset (NULL); set once at go-live, never hard-coded")
 
 print("entry_flag partial immutability:")
 expect_abort("mutate flag_type", "UPDATE entry_flag SET flag_type='overlap' WHERE id=1")
@@ -167,8 +184,33 @@ expect_ok("resolve with reason", "UPDATE entry_flag SET resolved_at='2026-07-07T
 expect_abort("DELETE entry_flag", "DELETE FROM entry_flag WHERE id=1")
 expect_abort("INSERT OR REPLACE entry_flag id=1",
              f"INSERT OR REPLACE INTO entry_flag (id, entry_uuid, trigger_version_id, flag_type, created_at) VALUES (1,'{UUID}',{vid},'overlap','2026-07-07T05:00:00Z')")
+dvid = db.execute("SELECT id FROM time_entry_version WHERE entry_uuid='f0000000-0000-0000-0000-00000000000d'").fetchone()[0]
 expect_ok("break_exceeds_duration flag type accepted",
-          f"INSERT INTO entry_flag (entry_uuid, trigger_version_id, flag_type, created_at) VALUES ('f0000000-0000-0000-0000-00000000000d',{bvid},'break_exceeds_duration','2026-07-07T05:00:00Z')")
+          f"INSERT INTO entry_flag (entry_uuid, trigger_version_id, flag_type, created_at) VALUES ('f0000000-0000-0000-0000-00000000000d',{dvid},'break_exceeds_duration','2026-07-07T05:00:00Z')")
+
+print("ot_policy (effective-dated, append-only):")
+expect_ok("append policy row (threshold 40, multiplier unset)",
+          "INSERT INTO ot_policy (id, threshold_hours, effective_date, entered_by, entered_at) VALUES (1,40,'2026-01-05',1,'2026-07-07T06:00:00Z')")
+expect_abort("UPDATE ot_policy", "UPDATE ot_policy SET threshold_hours=35 WHERE id=1")
+expect_abort("DELETE ot_policy", "DELETE FROM ot_policy WHERE id=1")
+expect_abort("INSERT OR REPLACE ot_policy id=1",
+             "INSERT OR REPLACE INTO ot_policy (id, threshold_hours, effective_date, entered_by, entered_at) VALUES (1,60,'2026-01-05',1,'2026-07-07T06:01:00Z')")
+expect_abort("threshold_hours = 0", "INSERT INTO ot_policy (threshold_hours, effective_date, entered_by, entered_at) VALUES (0,'2026-07-01',1,'2026-07-07T06:02:00Z')")
+expect_abort("multiplier < 1", "INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (40,0.5,'2026-07-01',1,'2026-07-07T06:03:00Z')")
+# same-effective-date correction: both rows preserved, latest entered_at wins in the view
+db.execute("INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (44,1.5,'2026-01-05',1,'2026-07-07T06:04:00Z')")
+row = db.execute("SELECT threshold_hours, multiplier, threshold_tag, multiplier_tag FROM v_ot_policy_effective WHERE effective_date='2026-01-05'").fetchone()
+assert row == (44, 1.5, 'SOURCE', 'SOURCE'), f"effective view wrong: {row}"
+assert db.execute("SELECT COUNT(*) FROM ot_policy WHERE effective_date='2026-01-05'").fetchone()[0] == 2
+print(f"  ok: same-date correction -> latest entered_at wins ({row[0]}h x{row[1]}, SOURCE tags), both rows preserved")
+db.execute("INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (40,1.5,'2026-06-01',1,'2026-07-07T06:05:00Z')")
+rows = db.execute("SELECT effective_date, threshold_hours FROM v_ot_policy_effective ORDER BY effective_date").fetchall()
+assert rows == [('2026-01-05', 44), ('2026-06-01', 40)], f"policy history wrong: {rows}"
+print("  ok: policy change is a new effective_date row; past ranges recompute under the policy in force then")
+keys = {r[0] for r in db.execute("SELECT key FROM config")}
+assert 'ot_threshold_hours_per_week' not in keys and 'ot_multiplier' not in keys, keys
+assert {'ot_pay_preview_enabled', 'workweek_start_dow', 'pay_period_anchor'} <= keys, keys
+print("  ok: OT scalars removed from config; preview switch / workweek / anchor keys remain")
 
 tags = [r[0] for r in db.execute("SELECT tag FROM figure_tag ORDER BY tag")]
 assert tags == ['ALLOCATED','CALCULATED','ESTIMATED','EXTERNAL','SOURCE'], tags
