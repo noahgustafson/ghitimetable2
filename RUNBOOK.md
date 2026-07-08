@@ -132,3 +132,5 @@ redone.
 - Dashboard: last successful backup recent? last restore-verification OK?
 - Any old open flags or sync conflicts?
 - Any phone that hasn't synced in a long time?
+
+> This runbook is AI-assisted (Claude Code) and operator-reviewed before use.
