@@ -23,7 +23,7 @@ def app(tmp_path):
     migrate(conn)
     now = utcnow()
     people = [
-        ("gus", "Gus Admin", 1, 1, "employee"),
+        ("vern", "Vern Admin", 1, 1, "employee"),
         ("marta", "Marta Worker", 1, 0, "employee"),
         ("deshawn", "DeShawn Worker", 1, 0, "employee"),
         ("ollie", "Ollie Sub", 1, 0, "subcontractor"),

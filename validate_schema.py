@@ -33,7 +33,7 @@ def expect_ok(desc, stmt, params=()):
 
 # --- seed minimal rows ------------------------------------------------------
 db.execute("INSERT INTO person (id, username, password_hash, display_name, is_admin, worker_type, created_at)"
-           " VALUES (1,'noah','x','Noah Gustafson',1,'employee','2026-07-07T00:00:00Z')")
+           " VALUES (1,'admin1','x','Ada Verity',1,'employee','2026-07-07T00:00:00Z')")
 db.execute("INSERT INTO person (id, username, password_hash, display_name, worker_type, created_at, created_by)"
            " VALUES (2,'worker1','x','Test Worker','employee','2026-07-07T00:00:00Z',1)")
 db.execute("INSERT INTO job (id, code, name, created_at, created_by) VALUES (1,'J100','Smith kitchen','2026-07-07T00:00:00Z',1)")

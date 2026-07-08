@@ -29,7 +29,7 @@ def test_full_flow_via_routes(client, app, db):
     assert sub is not None, "submission must record the exact attested version"
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     r = admin.post("/admin/approve", data=form(app, admin, entry_uuid=uuid),
                    follow_redirects=True)
     assert b"Approved 1" in r.data
@@ -43,12 +43,12 @@ def test_full_flow_via_routes(client, app, db):
 
 
 def test_rejection_returns_to_draft_with_reason_attached(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     uuid, _ = add_entry(db, marta, work_date=YESTERDAY())
     advance(db, uuid, "submitted", marta, "Submitted")
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     r = admin.post("/admin/reject",
                    data=form(app, admin, entry_uuid=uuid, reason="break missing"),
                    follow_redirects=True)
@@ -65,7 +65,7 @@ def test_reject_without_reason_refused(client, app, db):
     uuid, _ = add_entry(db, marta, work_date=YESTERDAY())
     advance(db, uuid, "submitted", marta, "Submitted")
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     admin.post("/admin/reject", data=form(app, admin, entry_uuid=uuid, reason=""),
                follow_redirects=True)
     cur = db.execute("SELECT status FROM v_time_entry_current WHERE entry_uuid=?",
@@ -84,7 +84,7 @@ ILLEGAL = [
 
 
 def test_illegal_transitions_rejected_at_app_layer(db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
 
     def fresh(status_chain=()):
         uuid, _ = add_entry(db, marta, work_date=YESTERDAY())
@@ -139,7 +139,7 @@ def test_illegal_transitions_rejected_at_app_layer(db):
 
 
 def test_worker_edit_after_approval_rejected_via_route(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     uuid, _ = add_entry(db, marta, work_date=YESTERDAY())
     submit_and_approve(db, uuid, marta, gus)
     login(client, "marta")
@@ -156,7 +156,7 @@ def test_worker_edit_after_approval_rejected_via_route(client, app, db):
 def test_void_excluded_from_totals_reports_and_exports(client, app, db):
     from ghitime.figures import week_start, weekly_minutes
 
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     d = YESTERDAY()
     keep_uuid, _ = add_entry(db, marta, work_date=d, start="08:00", end="12:00", brk=0)
     void_uuid, _ = add_entry(db, marta, work_date=d, start="13:00", end="17:00", brk=0)
@@ -168,7 +168,7 @@ def test_void_excluded_from_totals_reports_and_exports(client, app, db):
     assert total == 240, "voided entry must not add to weekly totals"
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     csv_body = admin.get(f"/admin/reports/hours.csv?group=person&period=day&from={d}&to={d}"
                          ).data.decode()
     assert "4.00" in csv_body and "8.00" not in csv_body

@@ -24,25 +24,25 @@ def test_no_report_title_contains_margin_or_profit(client, app, db):
             if word in line and "rule" not in line and "never contain" not in line:
                 raise AssertionError(f"suspicious {word!r} in reports.py: {line.strip()}")
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     body = admin.get("/admin/reports").data.decode().lower()
     assert "margin" not in body.replace("margin\" or \"profit", "")
 
 
 def test_ot_report_blank_when_workweek_unset(client, app, db):
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     body = admin.get("/admin/reports/ot.csv").data.decode()
     assert "workweek start unset" in body
 
 
 def test_hours_rollup_periods(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     d = (today_local() - timedelta(days=1)).isoformat()
     u, _ = add_entry(db, marta, work_date=d, start="08:00", end="12:00", brk=0)
     submit_and_approve(db, u, marta, gus)
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     for period in ("day", "week", "month", "quarter", "year"):
         body = admin.get(
             f"/admin/reports/hours.csv?group=person&period={period}&from={d}&to={d}"
@@ -53,12 +53,12 @@ def test_hours_rollup_periods(client, app, db):
 
 
 def test_labor_report_flags_missing_rates(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     d = (today_local() - timedelta(days=1)).isoformat()
     u, _ = add_entry(db, marta, work_date=d, start="08:00", end="12:00", brk=0)
     submit_and_approve(db, u, marta, gus)
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     body = admin.get(f"/admin/reports/labor.csv?basis=pay&from={d}&to={d}").data.decode()
     assert "no pay rate set" in body
 
@@ -69,7 +69,7 @@ def test_labor_report_flags_missing_rates(client, app, db):
 
 
 def test_worker_record_shows_full_history(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     d = (today_local() - timedelta(days=1)).isoformat()
     u, _ = add_entry(db, marta, work_date=d)
     submit_and_approve(db, u, marta, gus)

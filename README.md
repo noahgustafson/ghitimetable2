@@ -24,7 +24,7 @@ non-technical operator. This file covers setup and maintenance.
 ```sh
 git clone <this repo> /opt/ghitime && cd /opt/ghitime
 docker compose up -d --build          # migrates automatically, then serves
-docker compose exec ghitime flask create-admin gus "Gus Halvorsen"
+docker compose exec ghitime flask create-admin admin "Your Name"
 #   prints a temp password; you must change it at first login
 ```
 

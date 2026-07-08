@@ -39,13 +39,13 @@ def _work_week(db, worker, admin, monday_iso, hours_per_day=10, days=5):
 
 
 def test_payroll_export_tags_and_blank_flags(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     set_workweek_monday(db)
     mon = _monday(2)
     _work_week(db, marta, gus, mon, hours_per_day=8, days=2)
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     dto = (today_local()).isoformat()
     body = admin.get(f"/admin/export/payroll/employees.csv?from={mon}&to={dto}").data.decode()
     rows = _rows(body)
@@ -68,7 +68,7 @@ def test_payroll_export_tags_and_blank_flags(client, app, db):
 
 
 def test_employee_and_subcontractor_never_mixed(client, app, db):
-    marta, ollie, gus = person(db, "marta"), person(db, "ollie"), person(db, "gus")
+    marta, ollie, gus = person(db, "marta"), person(db, "ollie"), person(db, "vern")
     d = (today_local() - timedelta(days=1)).isoformat()
     u1, _ = add_entry(db, marta, work_date=d)
     submit_and_approve(db, u1, marta, gus)
@@ -76,7 +76,7 @@ def test_employee_and_subcontractor_never_mixed(client, app, db):
     submit_and_approve(db, u2, ollie, gus)
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     emp = admin.get(f"/admin/export/payroll/employees.csv?from={d}&to={d}").data.decode()
     sub = admin.get(f"/admin/export/payroll/subcontractors.csv?from={d}&to={d}").data.decode()
     assert "Marta" in emp and "Ollie" not in emp
@@ -89,7 +89,7 @@ def test_ot_policy_history_correctness(client, app, db):
     """Weeks before the first policy row are blank+flagged; a policy change
     affects only weeks on/after its effective date; re-running a past range
     reproduces identical figures."""
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     set_workweek_monday(db)
     add_rate(db, gus, marta["id"], 2000, "2020-01-01")
 
@@ -101,7 +101,7 @@ def test_ot_policy_history_correctness(client, app, db):
     add_ot_policy(db, gus, 40, 1.5, w2)
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     dto = (today_local()).isoformat()
     url = f"/admin/export/payroll/employees.csv?from={w3}&to={dto}"
     first_run = admin.get(url).data.decode()
@@ -126,7 +126,7 @@ def test_ot_policy_history_correctness(client, app, db):
 
 
 def test_ot_pay_preview_column_gated(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     set_workweek_monday(db)
     add_rate(db, gus, marta["id"], 2000, "2020-01-01")
     mon = _monday(1)
@@ -134,7 +134,7 @@ def test_ot_pay_preview_column_gated(client, app, db):
     add_ot_policy(db, gus, 40, 1.5, mon)
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     dto = today_local().isoformat()
     url = f"/admin/export/payroll/employees.csv?from={mon}&to={dto}"
 
@@ -158,7 +158,7 @@ def test_full_export_covers_every_table_csv_and_json(client, app, db):
     assert tables == set(ALL_TABLES), "full export must cover EVERY table"
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     z = zipfile.ZipFile(io.BytesIO(admin.get("/admin/export/full.zip").data))
     names = set(z.namelist())
     for t in ALL_TABLES:

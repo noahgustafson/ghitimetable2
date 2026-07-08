@@ -22,7 +22,7 @@ def test_password_reset_revokes_sessions(client, app, db):
     assert client.get("/entries").status_code == 200
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     pid = person(db, "marta")["id"]
     admin.post(f"/admin/people/{pid}/password",
                data=form(app, admin, temp_password="newtemp123"),
@@ -44,7 +44,7 @@ def test_worker_cannot_reach_admin_or_other_entries(client, app, db):
 
 
 def test_bill_rate_never_rendered_to_workers(client, app, db):
-    gus = person(db, "gus")
+    gus = person(db, "vern")
     marta = person(db, "marta")
     add_rate(db, gus, marta["id"], 2850, "2020-01-01", table="rate_pay")
     add_rate(db, gus, marta["id"], 9999, "2020-01-01", table="rate_bill")

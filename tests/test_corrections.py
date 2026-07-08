@@ -12,12 +12,12 @@ D = lambda n=1: (today_local() - timedelta(days=n)).isoformat()
 
 
 def test_post_approval_correction(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     uuid, _ = add_entry(db, marta, work_date=D())
     submit_and_approve(db, uuid, marta, gus)
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     j1 = db.execute("SELECT id FROM job WHERE code='J1'").fetchone()["id"]
     r = admin.post(f"/admin/entries/{uuid}/correct", data=form(
         app, admin, work_date=D(), job_id=str(j1), start_time="08:00",
@@ -51,10 +51,10 @@ def test_post_approval_correction(client, app, db):
 
 
 def test_correction_requires_reason_and_approved_state(client, app, db):
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     uuid, _ = add_entry(db, marta, work_date=D())
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     j1 = db.execute("SELECT id FROM job WHERE code='J1'").fetchone()["id"]
     common = dict(work_date=D(), job_id=str(j1), start_time="08:00",
                   end_time="15:00", break_minutes="30", note="")
@@ -75,13 +75,13 @@ def test_resulting_version_id_presence_rule(client, app, db):
     """Every approval path that creates a version links it (non-NULL);
     nothing in V1 creates approval lines without a resulting version, so all
     rows must be non-NULL and coherent."""
-    marta, gus = person(db, "marta"), person(db, "gus")
+    marta, gus = person(db, "marta"), person(db, "vern")
     u1, _ = add_entry(db, marta, work_date=D(2))
     submit_and_approve(db, u1, marta, gus)          # approve path
     u2, _ = add_entry(db, marta, work_date=D(3))
     advance(db, u2, "submitted", marta, "Submitted")
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     admin.post("/admin/reject", data=form(app, admin, entry_uuid=u2, reason="nope"),
                follow_redirects=True)               # reject path
 

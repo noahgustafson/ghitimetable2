@@ -45,7 +45,7 @@ def test_flag_gates_approval_and_ack_lands_in_audit(client, app, db):
     advance(db, uuid, "submitted", marta, "Submitted")
 
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     r = admin.post("/admin/approve", data=form(app, admin, entry_uuid=uuid),
                    follow_redirects=True)
     assert b"Nothing approved" in r.data
@@ -87,11 +87,11 @@ def test_badge_flags_do_not_gate_and_flags_autoresolve(client, app, db):
 
 
 def test_self_approval_is_flagged_and_audited(client, app, db):
-    gus = person(db, "gus")
+    gus = person(db, "vern")
     uuid, _ = add_entry(db, gus, work_date=D())
     advance(db, uuid, "submitted", gus, "Submitted")
     admin = app.test_client()
-    login(admin, "gus")
+    login(admin, "vern")
     admin.post("/admin/approve", data=form(app, admin, entry_uuid=uuid),
                follow_redirects=True)
     assert "self_approval" in {

@@ -24,7 +24,7 @@ def seed_demo(conn: sqlite3.Connection) -> str:
     now = utcnow()
     people = [
         # username, display, worker, admin, type
-        ("gus", "Gus Halvorsen (owner)", 1, 1, "employee"),
+        ("vern", "Vern Ostrander (owner)", 1, 1, "employee"),
         ("marta", "Marta Vlasek", 1, 0, "employee"),
         ("deshawn", "DeShawn Pratt", 1, 0, "employee"),
         ("ollie", "Ollie Trask (sub)", 1, 0, "subcontractor"),
@@ -47,7 +47,7 @@ def seed_demo(conn: sqlite3.Connection) -> str:
     for code, name in jobs:
         cur = conn.execute(
             "INSERT INTO job (code, name, status, created_at, created_by)"
-            " VALUES (?,?, 'active', ?, ?)", (code, name, now, ids["gus"]))
+            " VALUES (?,?, 'active', ?, ?)", (code, name, now, ids["vern"]))
         jids[code] = cur.lastrowid
     conn.execute("UPDATE job SET status='completed' WHERE id=?", (jids["DECK-3"],))
 
@@ -56,23 +56,23 @@ def seed_demo(conn: sqlite3.Connection) -> str:
     t = today_local()
     conn.execute("INSERT INTO rate_pay (person_id, hourly_rate_cents, effective_date,"
                  " entered_by, entered_at) VALUES (?,?,?,?,?)",
-                 (ids["marta"], 2600, (t - timedelta(days=200)).isoformat(), ids["gus"], utcnow()))
+                 (ids["marta"], 2600, (t - timedelta(days=200)).isoformat(), ids["vern"], utcnow()))
     conn.execute("INSERT INTO rate_pay (person_id, hourly_rate_cents, effective_date,"
                  " entered_by, entered_at) VALUES (?,?,?,?,?)",
-                 (ids["marta"], 2850, (t - timedelta(days=30)).isoformat(), ids["gus"], utcnow()))
+                 (ids["marta"], 2850, (t - timedelta(days=30)).isoformat(), ids["vern"], utcnow()))
     conn.execute("INSERT INTO rate_pay (person_id, hourly_rate_cents, effective_date,"
                  " entered_by, entered_at) VALUES (?,?,?,?,?)",
-                 (ids["deshawn"], 2400, (t - timedelta(days=100)).isoformat(), ids["gus"], utcnow()))
+                 (ids["deshawn"], 2400, (t - timedelta(days=100)).isoformat(), ids["vern"], utcnow()))
     conn.execute("INSERT INTO rate_bill (person_id, hourly_rate_cents, effective_date,"
                  " entered_by, entered_at) VALUES (?,?,?,?,?)",
-                 (ids["deshawn"], 6500, (t - timedelta(days=100)).isoformat(), ids["gus"], utcnow()))
+                 (ids["deshawn"], 6500, (t - timedelta(days=100)).isoformat(), ids["vern"], utcnow()))
 
     # OT policy in force since 90 days ago (40h x 1.5); workweek Monday
     conn.execute("INSERT INTO ot_policy (threshold_hours, multiplier, effective_date,"
                  " entered_by, entered_at) VALUES (40, 1.5, ?, ?, ?)",
-                 ((t - timedelta(days=90)).isoformat(), ids["gus"], utcnow()))
+                 ((t - timedelta(days=90)).isoformat(), ids["vern"], utcnow()))
     conn.execute("UPDATE config SET value='0', updated_by=?, updated_at=?"
-                 " WHERE key='workweek_start_dow'", (ids["gus"], utcnow()))
+                 " WHERE key='workweek_start_dow'", (ids["vern"], utcnow()))
 
     person_rows = {u: conn.execute("SELECT * FROM person WHERE id=?", (ids[u],)).fetchone()
                    for u in ids}
@@ -115,7 +115,7 @@ def seed_demo(conn: sqlite3.Connection) -> str:
                      " VALUES (?,?)", (cur.lastrowid, vid))
 
     # approved entries (a full week for marta incl. an OT week)
-    def approve(uuid, acted_vid, approver="gus", ack=None):
+    def approve(uuid, acted_vid, approver="vern", ack=None):
         cv = conn.execute("SELECT * FROM v_time_entry_current WHERE entry_uuid=?",
                           (uuid,)).fetchone()
         ap = conn.execute(
@@ -148,9 +148,9 @@ def seed_demo(conn: sqlite3.Connection) -> str:
         approved_uuids.append(uuid)
 
     # owner logs + SELF-APPROVES his own hours (flagged + badged)
-    uuid, vid = entry("gus", "BATH-7", 4, "09:00", "13:00", 0,
-                      status_chain=[("submitted", "gus", "Submitted")])
-    approve(uuid, vid, approver="gus")
+    uuid, vid = entry("vern", "BATH-7", 4, "09:00", "13:00", 0,
+                      status_chain=[("submitted", "vern", "Submitted")])
+    approve(uuid, vid, approver="vern")
 
     # subcontractor approved hours (separate payroll file)
     uuid, vid = entry("ollie", "KIT-14", 5, "08:00", "16:00", 30,
@@ -160,7 +160,7 @@ def seed_demo(conn: sqlite3.Connection) -> str:
     # rejection path: submitted -> rejected back to draft with reason
     entry("deshawn", "KIT-14", 6, "07:00", "19:30", 0,
           status_chain=[("submitted", "deshawn", "Submitted"),
-                        ("draft", "gus", "Rejected: lunch break missing — add it")])
+                        ("draft", "vern", "Rejected: lunch break missing — add it")])
 
     # post-approval correction (badged)
     uuid, vid = entry("deshawn", "BATH-7", 8, "08:00", "16:00", 30,
@@ -171,12 +171,12 @@ def seed_demo(conn: sqlite3.Connection) -> str:
         conn, entry_uuid=uuid, person_id=cv["person_id"], job_id=cv["job_id"],
         work_date=cv["work_date"], start_time="08:00", end_time="15:00",
         break_minutes=30, note=cv["note"], status="approved",
-        author=person_rows["gus"],
+        author=person_rows["vern"],
         change_reason="Post-approval correction: site closed early, confirmed with DeShawn",
     )
     flag_mod.raise_flag(conn, uuid, vid3, "post_approval_correction",
                         {"reason": "site closed early"})
-    audit(conn, ids["gus"], "entry.correct_post_approval", "time_entry", uuid,
+    audit(conn, ids["vern"], "entry.correct_post_approval", "time_entry", uuid,
           "site closed early, confirmed with DeShawn")
 
     # voided entry (must appear in NO totals/reports/exports)
