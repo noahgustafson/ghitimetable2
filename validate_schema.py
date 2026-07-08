@@ -8,7 +8,7 @@ import sqlite3, sys
 
 db = sqlite3.connect(":memory:")
 db.execute("PRAGMA foreign_keys = ON")
-sql = open("schema.sql").read()
+sql = open("migrations/001_init.sql").read()
 db.executescript(sql)
 print("schema loaded OK")
 assert db.execute("PRAGMA recursive_triggers").fetchone()[0] == 0, "test must run with default pragmas"
