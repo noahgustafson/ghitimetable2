@@ -1,0 +1,24 @@
+name: CI
+
+# Gate 2 binding scope item 5 (GATE1.md §6): validate_schema.py and the full
+# pytest suite run on every PR to main.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Schema invariants (validate_schema.py)
+        run: python validate_schema.py
+      - name: Full pytest suite
+        run: pytest -q
