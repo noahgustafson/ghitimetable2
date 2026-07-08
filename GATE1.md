@@ -1,6 +1,9 @@
 # GHI-TIME — Gate 1 deliverable
 
-**Status: awaiting operator approval. No application code has been written.**
+**Status: approved 2026-07-08 conditional on three schema changes (person_id
+immutability, uuid/version coherence, effective-dated ot_policy) — applied
+below; schema diff awaiting operator confirmation before Gate 2 begins. No
+application code has been written.**
 
 This document accompanies [`schema.sql`](schema.sql) and contains the full
 route list, the screen list, the design decisions embedded in the schema, and
@@ -13,7 +16,7 @@ AI-assisted (Claude Code); to be reviewed by Noah Gustafson before use.
 ## 1. Schema summary
 
 `schema.sql` (which ships verbatim as `migrations/001_init.sql` on approval)
-defines **19 tables, 5 views, 45 triggers**. It has been machine-validated:
+defines **20 tables, 6 views, 51 triggers**. It has been machine-validated:
 the DDL loads clean in SQLite, and every append-only guarantee below was
 exercised and confirmed rejected — including plain UPDATE/DELETE, **INSERT OR
 REPLACE, UPDATE OR REPLACE, and UPSERT (`ON CONFLICT DO UPDATE`) bypass
@@ -30,13 +33,14 @@ only the standard library). It becomes the seed of the Gate 2 pytest suite.
 |---|---|---|
 | `person` | roster; role flags; `worker_type` employee/subcontractor | update allowed; **DELETE blocked by trigger** (deactivate instead) |
 | `job` | admin-created jobs; only `active` sync to offline picker | update allowed; **DELETE blocked** |
-| `time_entry_version` | the core: append-only entry versions | **UPDATE and DELETE blocked by triggers**; `version_no` must be contiguous (trigger); `change_reason` required from v2 on (CHECK); v1 must be `draft` (CHECK — a phone can never sync an entry into existence as approved) |
+| `time_entry_version` | the core: append-only entry versions | **UPDATE and DELETE blocked by triggers**; `version_no` must be contiguous (trigger); `change_reason` required from v2 on (CHECK); v1 must be `draft` (CHECK — a phone can never sync an entry into existence as approved); **`person_id` immutable across versions (trigger — an entry never changes owner; wrong-person entries are voided and re-entered; `job_id` stays changeable)** |
 | `submission` / `submission_entry` | attestation events + the exact versions attested | **append-only (triggers)** |
-| `approval` / `approval_entry` | approve/reject events; reject requires reason (CHECK); approving an entry with an open data-integrity flag requires `flags_ack_reason` (trigger — badge flags don't gate); self-approval flagged | **append-only (triggers)** |
-| `rate_pay` | effective-dated pay rates, worker-visible | **append-only** — a raise never rewrites the past |
-| `rate_bill` | effective-dated bill rates, admin-only | **append-only** |
-| `config` | `ot_threshold_hours_per_week`, `ot_multiplier` (both ship **UNSET/NULL**, `value_tag='SOURCE'` — figure-valued keys carry their tag onto every screen/report/export that renders them), `ot_pay_preview_enabled` ('0'), `workweek_start_dow` (unset — see open questions), `pay_period_anchor` (reserved, unused) | value update allowed (audit-logged); **key DELETE blocked; key rename blocked** |
-| `entry_flag` | surfaced anomalies: overlap, >16h, duplicate, future-dated, end-not-after-start, break-exceeds-duration, plus badge types self_approval and post_approval_correction | core fields immutable (trigger); only resolution fields writable; resolution requires reason (CHECK); **DELETE blocked** |
+| `approval` / `approval_entry` | approve/reject events; reject requires reason (CHECK); approving an entry with an open data-integrity flag requires `flags_ack_reason` (trigger — badge flags don't gate); `entry_uuid` must match the version rows referenced by `acted_on_version_id`/`resulting_version_id` (coherence trigger); self-approval flagged | **append-only (triggers)** |
+| `rate_pay` | effective-dated pay rates, worker-visible | **append-only** — a raise never rewrites the past; UNIQUE (person, effective_date, entered_at) rejects identical-timestamp duplicates |
+| `rate_bill` | effective-dated bill rates, admin-only | **append-only**; same UNIQUE guard as rate_pay |
+| `ot_policy` | effective-dated OT policy on the rate_pay pattern: `threshold_hours` (>0) + `multiplier` (>0), both required — no partial policy rows; "no policy in force" is represented only by row absence — with pinned SOURCE tags, `effective_date`, `entered_by`, `entered_at`; UNIQUE (effective_date, entered_at) rejects identical-timestamp duplicates. Each week's OT computes under the policy in force at that week's start; weeks with no policy in force render blank + flagged; OT columns carry the threshold applied; re-running a past range reproduces the figures generated under the policy in force then. Ships **empty** | **append-only (no_update / no_delete / no_replace triggers)** |
+| `config` | settings only — figures live in `ot_policy`: `ot_pay_preview_enabled` ('0'; even enabled, the preview needs an OT policy in force for the period), `workweek_start_dow` (ships unset; set once at go-live — Monday per operator once confirmed against payroll practice; changing it mid-history out of scope for V1, stated in README), `pay_period_anchor` (reserved, unused) | value update allowed (audit-logged); **key DELETE blocked; key rename blocked** |
+| `entry_flag` | surfaced anomalies: overlap, >16h, duplicate, future-dated, end-not-after-start, break-exceeds-duration, plus badge types self_approval and post_approval_correction | core fields immutable (trigger); only resolution fields writable; resolution requires reason (CHECK); `entry_uuid` must match `trigger_version_id`'s uuid (coherence trigger — a mismatched flag can no longer badge or gate the wrong entry); **DELETE blocked** |
 | `sync_conflict` | same (uuid, version) with different payload — stored row wins, rejected payload preserved verbatim and surfaced | core fields immutable; **DELETE blocked** |
 | `audit_log` | actor, action, entity, reason, details | **append-only** |
 | `session` | server-side sessions so password reset revokes a lost phone | app-managed |
@@ -52,7 +56,10 @@ its `CALCULATED` tag column, span doubling as the visible derivation; **NULL —
 blank, UI-flagged — when end ≤ start or the break exceeds the span**, never
 auto-corrected or clamped), `v_rate_pay_effective` / `v_rate_bill_effective`
 (rate history; "rate as of date" resolved by app, blank + flagged when no rate
-predates the work date), `v_open_flags`.
+predates the work date), `v_ot_policy_effective` (OT policy history, latest
+`entered_at` per `effective_date` wins; "policy in force for a week" = the
+greatest `effective_date` ≤ that week's start; no row ⇒ OT blank + flagged),
+`v_open_flags`.
 
 Key conventions: UTC ISO-8601 for all `*_at` server timestamps; `work_date` /
 `start_time` / `end_time` stored exactly as entered (America/Chicago,
@@ -115,7 +122,7 @@ Every POST is CSRF-protected; login is rate-limited via `login_attempt`.
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| GET | `/` | any | role-aware home. Worker view: this week's totals (CALCULATED), unsubmitted count, open flags on own entries, gross preview if rate set (blank + "rate not set" flag otherwise), OT flag once threshold set, submit button |
+| GET | `/` | any | role-aware home. Worker view: this week's totals (CALCULATED), unsubmitted count, open flags on own entries, gross preview if rate set (blank + "rate not set" flag otherwise), OT flag once an OT policy is in force, submit button |
 | GET | `/entries?from&to&status` | worker | own entries by date range; status badges; flag badges |
 | GET | `/entries/new` | worker | online entry form (same fields as capture) |
 | POST | `/entries` | worker | create entry (v1 draft; server generates uuid for online path) |
@@ -137,7 +144,7 @@ beyond the spec's allowed service worker + capture module.
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| GET | `/admin` | admin | dashboard: per-person unsubmitted counts, open flag count, open sync conflicts, **"OT threshold unset — bookkeeper advises"** warning, last successful backup (from `ops_event`; stale ⇒ warning), last restore-verification, per-device last sync |
+| GET | `/admin` | admin | dashboard: per-person unsubmitted counts, open flag count, open sync conflicts, **"no OT policy in force — bookkeeper advises"** warning, last successful backup (from `ops_event`; stale ⇒ warning), last restore-verification, per-device last sync |
 | GET | `/admin/queue` | admin | approval queue grouped by submission; inline version diffs; flag badges |
 | POST | `/admin/approve` | admin | approve selected entries or a whole submission; requires `flags_ack_reason` if any covered entry has an open data-integrity flag (schema-enforced by trigger) and records that reason in the `audit_log` row; self-approval auto-flagged + audit-logged |
 | POST | `/admin/reject` | admin | reject with required reason → new `draft` version carrying the reason |
@@ -161,8 +168,9 @@ beyond the spec's allowed service worker + capture module.
 | POST | `/admin/jobs` | admin | create job |
 | POST | `/admin/jobs/<id>/complete` | admin | complete (drops from offline picker at next job-list sync) |
 | POST | `/admin/jobs/<id>/reactivate` | admin | reactivate |
-| GET | `/admin/config` | admin | view config incl. UNSET states |
-| POST | `/admin/config` | admin | set OT threshold / multiplier / preview toggle / workweek start (audit-logged; can also re-unset) |
+| GET | `/admin/config` | admin | view settings incl. UNSET states, plus the full OT policy history (`v_ot_policy_effective`) |
+| POST | `/admin/config` | admin | set preview toggle / workweek start (audit-logged; can also re-unset) |
+| POST | `/admin/ot-policy` | admin | append a new effective-dated OT policy row (threshold, optional multiplier); never edits history; audit-logged |
 | GET | `/admin/audit?actor&action&entity&from&to` | admin | audit log viewer, filterable |
 | GET | `/admin/sync-status` | admin | per person/device: last sync, counts, conflicts (RUNBOOK: "check a phone's sync status") |
 
@@ -172,7 +180,7 @@ beyond the spec's allowed service worker + capture module.
 |---|---|---|
 | GET | `/admin/reports` | hub |
 | GET | `/admin/reports/hours?group=person\|job\|person_job&period=day\|week\|month\|quarter\|year&from&to` (+ `.csv`) | hours rollups (CALCULATED) |
-| GET | `/admin/reports/ot?from&to` (+ `.csv`) | weekly OT hours past threshold; **blank + flagged if threshold or workweek start unset** |
+| GET | `/admin/reports/ot?from&to` (+ `.csv`) | weekly OT hours past threshold, computed per week under the policy in force at that week's start; **weeks with no policy in force (or workweek start unset) render blank + flagged**; OT columns carry the threshold value applied |
 | GET | `/admin/reports/labor?basis=pay\|bill&period&from&to` (+ `.csv`) | "Labor cost (pay)" / "Billable labor (bill)", both CALCULATED. Report titles may never contain "margin" or "profit" (README rule) |
 
 ### Exports
@@ -180,7 +188,7 @@ beyond the spec's allowed service worker + capture module.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/admin/export` | export hub |
-| GET | `/admin/export/payroll/employees.csv?from&to` | bookkeeper payroll-prep: person, date, job, hours(+tag), break(+tag), OT-hours-past-threshold(+tag; blank + flag column if threshold unset), pay rate(+tag) if set else blank+flag, gross preview (CALCULATED), correction badges. **Employees only.** OT pay preview column only when `ot_pay_preview_enabled` AND multiplier set. |
+| GET | `/admin/export/payroll/employees.csv?from&to` | bookkeeper payroll-prep: person, date, job, hours(+tag), break(+tag), OT-hours-past-threshold(+tag; computed under the policy in force per week, paired with the threshold applied; blank + flag column for weeks with no policy in force), pay rate(+tag) if set else blank+flag, gross preview (CALCULATED), correction badges. **Employees only.** OT pay preview column only when `ot_pay_preview_enabled` AND an OT policy is in force for the period. Re-running a past range reproduces the figures generated under the policy in force then. |
 | GET | `/admin/export/payroll/subcontractors.csv?from&to` | identical format, subcontractors only, `SUBCONTRACTOR` label in filename and header row. **Never mixed with employees.** |
 | GET | `/admin/export/job-labor.csv?from&to&basis` | hours / labor cost / billable by job and period |
 | GET | `/admin/export/full.zip` | every table as CSV + JSON (data ownership) |
@@ -212,8 +220,8 @@ design).
 1. **Login** — username/password; rate-limit lockout message.
 2. **Forced password change** — first login / after admin reset.
 3. **Worker home** — weekly totals, unsubmitted count, gross preview
-   (CALCULATED, blank+flag without a rate), OT flag once threshold set,
-   submit button, link to capture.
+   (CALCULATED, blank+flag without a rate), OT flag once an OT policy is in
+   force, submit button, link to capture.
 4. **Capture module** (installable, the ONLY offline screen) — entry form
    (date backdate-allowed / future-blocked, job picker from cached list with
    as-of timestamp, start/end, break, note), offline editing of
@@ -243,8 +251,9 @@ design).
     active toggle, password reset, pay/bill rate history + append, record
     printout link.
 15. **Jobs admin** — create, complete, reactivate.
-16. **Config** — OT threshold / multiplier / preview toggle / workweek start;
-    UNSET states shown explicitly.
+16. **Config** — preview toggle / workweek start with UNSET states shown
+    explicitly, plus OT policy history (append-only) and the
+    append-new-policy form.
 17. **Reports hub + report view** — parameterized (group, period, range),
     every figure tagged, CSV twin.
 18. **Export hub** — payroll-prep (employee + subcontractor files), job
@@ -279,13 +288,23 @@ design).
    revokes a lost phone's session — the stated lost-phone threat.
 7. **Rate history keeps same-day corrections**: multiple rows per
    (person, effective_date) allowed; latest `entered_at` wins; nothing is
-   overwritten.
+   overwritten. `entered_at` must differ — UNIQUE effective-date indexes on
+   `rate_pay`, `rate_bill`, and `ot_policy` (operator condition at diff
+   confirmation, 2026-07-08) reject identical-timestamp duplicates, so the
+   effective views can never return two rows per date and double-count.
+   The `*_no_replace` triggers also guard these natural keys (an
+   INSERT OR REPLACE via the new UNIQUE key would otherwise displace the
+   existing row under default pragmas). Gate 2 stores `entered_at` with
+   sub-second precision so legitimate rapid corrections never collide.
 8. **Self-approval and post-approval corrections reuse `entry_flag`** as
    badge types (they don't clutter the review queue but travel with the entry
    onto printouts and exports through one mechanism).
-9. **`workweek_start_dow` added to config, shipping UNSET** — weekly OT math
-   needs a week boundary and inventing one (Sunday vs Monday) would violate
-   the never-default rule. See open question 1.
+9. **`workweek_start_dow` in config, shipping UNSET** — resolved at
+   approval: Mon–Sun is the display grouping; the value is set to Monday at
+   go-live via admin config once confirmed against payroll practice — never
+   hard-coded. OT figures stay blank+flagged until `ot_policy` has a row in
+   force. Changing it mid-history is out of scope for V1 (README states
+   this).
 10. **Backup visibility via `ops_event`**: host cron INSERTs a row after each
     backup / restore-verify; dashboard warns when the latest successful
     backup is older than expected.
@@ -305,26 +324,74 @@ design).
 13. **Theme toggle is a cookie set by `POST /theme`**, rendered server-side;
     `prefers-color-scheme` CSS is the no-cookie default. Keeps the client-JS
     surface exactly at the spec's limit (service worker + capture module).
+14. **An entry never changes owner** (approval condition 1): `person_id` is
+    trigger-enforced to match v1 across all versions — a reassigning version
+    would silently remove the entry from the original worker's my-record
+    printout. Wrong-person entries are corrected by void + new entry.
+    `job_id` stays changeable via normal versioning.
+15. **uuid/version coherence** (approval condition 2): `entry_flag` and
+    `approval_entry` rows are trigger-verified to reference version rows of
+    the entry they name — a mismatched flag can no longer badge, or gate the
+    approval of, the wrong entry. The `resulting_version_id` check is kept
+    (operator-confirmed): any column referencing a `time_entry_version` row
+    must match that row's `entry_uuid`. Gate 2 write ordering follows from
+    it: the new version row is inserted before the approval row, in one
+    transaction.
+16. **OT policy is effective-dated history, not a mutable scalar** (approval
+    condition 3): append-only `ot_policy` on the rate_pay pattern with
+    pinned SOURCE tags; `v_ot_policy_effective` resolves latest `entered_at`
+    per `effective_date`; each week computes under the policy in force at
+    its start; weeks before the first policy row render blank + flagged;
+    reports/exports carry the threshold applied; re-running a past range
+    reproduces the figures generated under the policy in force then.
+    Both figures are required on every row (operator-confirmed:
+    `NOT NULL`, `CHECK (multiplier > 0)`, `CHECK (threshold_hours > 0)`) —
+    no partial policy rows; "no policy in force" is represented only by row
+    absence. The OT pay preview requires `ot_pay_preview_enabled` and a
+    policy in force for the period.
 
-## 5. Open questions (answer at approval, or accept the proposal)
+## 5. Questions resolved at Gate 1 approval (2026-07-08)
 
-1. **Workweek boundary** — weekly totals and the OT flag need a week start.
-   Proposal: display grouping defaults to Mon–Sun *labeled "display
-   grouping"*, but OT figures stay blank+flagged until the bookkeeper
-   confirms both the threshold **and** the workweek start day. Alternative:
-   pick the FLSA workweek day now and I hard-code it.
-2. **Owner as bootstrap admin** — `flask create-admin` creates the owner
-   account with both roles (admin + worker, employee type). OK?
-3. **Session length** — proposal: 30-day rolling expiry, revoked on password
-   reset/change. Shorter?
-4. **Outbox warning threshold N** — proposal: warn at 20 unsynced entries
-   (iOS eviction risk). Different number?
-5. **Duplicate flag definition** — proposal: same person + date + identical
-   start/end on two different entry uuids ⇒ `duplicate` flag on both. Looser
-   (overlapping counts already catch partial copies)?
+1. **Workweek**: Mon–Sun confirmed as display grouping. `workweek_start_dow`
+   set to Monday at go-live via admin config once confirmed against payroll
+   practice; OT figures stay blank+flagged until `ot_policy` has a row in
+   force. No value hard-coded anywhere.
+2. **Bootstrap**: `flask create-admin` takes username, display name, and
+   role flags as arguments. The operator bootstraps his own admin account;
+   further accounts are created through people admin.
+3. **Sessions**: 30-day rolling expiry, revoked on password reset/change.
+4. **Outbox warning**: N = 20 unsynced entries.
+5. **Duplicate flag**: same person + date + identical start/end on two
+   different entry uuids ⇒ `duplicate` flag on both.
+
+## 6. Gate 2 pytest scope — binding additions from approval
+
+Beyond the spec's original test list, the Gate 2 suite must prove:
+
+1. **Illegal status transitions rejected at the app layer** per the
+   transition table in §1, including any worker-authored version after
+   `approved`.
+2. **`status='void'` excluded everywhere figures are produced**: weekly
+   totals, all reports, gross preview, and every export — proven with a
+   voided entry in the seed data.
+3. **Future-dated sync never strands or loses an entry**: a future-dated
+   entry syncs successfully (`accepted`) and raises a `future_dated` flag; a
+   wrong device clock cannot cause data loss.
+4. **OT correctness under policy history**: weeks before the first
+   `ot_policy` row are blank+flagged; a policy change affects only weeks on
+   or after its effective date; re-running an export for a past range
+   reproduces the same OT figures.
+5. **CI**: a GitHub Actions workflow runs `validate_schema.py` and the full
+   pytest suite on every PR to `main`. This workflow is the FIRST Gate 2
+   commit.
+6. **`resulting_version_id` presence**: every approval path that creates a
+   version writes a non-NULL `resulting_version_id` linking it; paths that
+   create no version write NULL. (Per design decision 15 — the schema
+   proves match-when-set; presence is app-layer.)
 
 ---
 
-*Gate 2 (on approval): migrations runner, Flask app, PWA capture module,
-pytest suite (incl. immutability proofs already prototyped for this gate),
-seed data, README, RUNBOOK, Docker Compose, backup/restore tooling.*
+*Gate 2 (on schema-diff confirmation): migrations runner, Flask app, PWA
+capture module, pytest suite (incl. the proofs prototyped in
+`validate_schema.py` and the binding additions in §6), seed data, README,
+RUNBOOK, Docker Compose, backup/restore tooling.*

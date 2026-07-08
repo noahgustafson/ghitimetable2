@@ -169,6 +169,11 @@ END;
 -- lifecycle versions get a system-generated reason (e.g. 'Submitted',
 -- 'Rejected: <admin reason>').
 --
+-- person_id is immutable across an entry's versions (trigger below): a
+-- reassigning version would remove the entry from the original worker's
+-- my-record printout. Wrong-person entries are corrected by void + new
+-- entry. job_id stays changeable.
+--
 -- Server-side validation (app layer, Gate 2): person must be an active
 -- worker; job must exist; author must be the entry's person or an admin;
 -- status transitions restricted to:
@@ -259,6 +264,22 @@ BEGIN
                  (SELECT MAX(version_no) FROM time_entry_version
                    WHERE entry_uuid = NEW.entry_uuid), 0)
         THEN RAISE(ABORT, 'time_entry_version: version_no must be exactly max(version_no)+1')
+    END;
+END;
+
+-- An entry can never change owner: every version must carry v1's person_id.
+-- (A reassigning version would silently remove the entry from the original
+-- worker's my-record printout.) Correct a wrong-person entry by voiding it
+-- and creating a new one.
+CREATE TRIGGER trg_tev_person_immutable
+BEFORE INSERT ON time_entry_version
+BEGIN
+    SELECT CASE
+        WHEN NEW.version_no > 1
+         AND NEW.person_id <> (SELECT person_id FROM time_entry_version
+                                WHERE entry_uuid = NEW.entry_uuid
+                                  AND version_no = 1)
+        THEN RAISE(ABORT, 'time_entry_version: person_id is immutable across versions; void and re-enter instead')
     END;
 END;
 
@@ -356,6 +377,27 @@ BEGIN
         THEN RAISE(ABORT, 'approval_entry: INSERT would replace an existing row') END;
 END;
 
+-- Coherence: the approval line's entry_uuid must be the uuid of the version
+-- rows it references — a mismatch would attach an approval to the wrong
+-- entry's record. IS NOT so a dangling acted_on_version_id also aborts even
+-- without foreign_keys enabled; resulting_version_id is checked only when
+-- present (it is NULLable).
+CREATE TRIGGER trg_approval_entry_uuid_coherent
+BEFORE INSERT ON approval_entry
+BEGIN
+    SELECT CASE WHEN NEW.entry_uuid IS NOT
+            (SELECT entry_uuid FROM time_entry_version
+              WHERE id = NEW.acted_on_version_id)
+        THEN RAISE(ABORT, 'approval_entry: entry_uuid does not match acted_on_version_id')
+    END;
+    SELECT CASE WHEN NEW.resulting_version_id IS NOT NULL
+                 AND NEW.entry_uuid IS NOT
+            (SELECT entry_uuid FROM time_entry_version
+              WHERE id = NEW.resulting_version_id)
+        THEN RAISE(ABORT, 'approval_entry: entry_uuid does not match resulting_version_id')
+    END;
+END;
+
 -- Figure rule, schema-enforced: approving an entry that carries an OPEN
 -- data-integrity flag requires a stated reason on the approval
 -- (flags_ack_reason), which the app also records in the audit_log row.
@@ -382,6 +424,10 @@ END;
 -- rate_pay — effective-dated pay rates. Append-only: a raise never rewrites
 -- the past. Visible to that worker and admin (app layer).
 -- Multiple rows on one effective_date are allowed; latest entered_at wins.
+-- entered_at must differ (UNIQUE below): an identical-timestamp duplicate
+-- would make v_rate_pay_effective return two rows for one effective_date
+-- and double-count downstream. Gate 2 stores entered_at with sub-second
+-- precision so legitimate rapid corrections never collide.
 -- ---------------------------------------------------------------------------
 CREATE TABLE rate_pay (
     id                INTEGER PRIMARY KEY,
@@ -394,7 +440,7 @@ CREATE TABLE rate_pay (
     entered_at        TEXT    NOT NULL                   -- UTC
 );
 
-CREATE INDEX idx_rate_pay_person ON rate_pay (person_id, effective_date, entered_at);
+CREATE UNIQUE INDEX idx_rate_pay_person ON rate_pay (person_id, effective_date, entered_at);
 
 CREATE TRIGGER trg_rate_pay_no_update BEFORE UPDATE ON rate_pay
 BEGIN SELECT RAISE(ABORT, 'rate_pay is append-only'); END;
@@ -405,6 +451,13 @@ BEGIN
     SELECT CASE WHEN NEW.id IS NOT NULL
                  AND EXISTS (SELECT 1 FROM rate_pay WHERE id = NEW.id)
         THEN RAISE(ABORT, 'rate_pay: INSERT would replace an existing row') END;
+    -- also guards the UNIQUE natural key so INSERT OR REPLACE cannot
+    -- displace the existing row on a connection with default pragmas
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM rate_pay
+                              WHERE person_id = NEW.person_id
+                                AND effective_date = NEW.effective_date
+                                AND entered_at = NEW.entered_at)
+        THEN RAISE(ABORT, 'rate_pay: duplicate (person_id, effective_date, entered_at)') END;
 END;
 
 -- ---------------------------------------------------------------------------
@@ -423,7 +476,9 @@ CREATE TABLE rate_bill (
     entered_at        TEXT    NOT NULL                   -- UTC
 );
 
-CREATE INDEX idx_rate_bill_person ON rate_bill (person_id, effective_date, entered_at);
+-- UNIQUE for the same reason as rate_pay: v_rate_bill_effective has the
+-- same latest-entered_at tie-break and the same double-count failure mode.
+CREATE UNIQUE INDEX idx_rate_bill_person ON rate_bill (person_id, effective_date, entered_at);
 
 CREATE TRIGGER trg_rate_bill_no_update BEFORE UPDATE ON rate_bill
 BEGIN SELECT RAISE(ABORT, 'rate_bill is append-only'); END;
@@ -434,33 +489,90 @@ BEGIN
     SELECT CASE WHEN NEW.id IS NOT NULL
                  AND EXISTS (SELECT 1 FROM rate_bill WHERE id = NEW.id)
         THEN RAISE(ABORT, 'rate_bill: INSERT would replace an existing row') END;
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM rate_bill
+                              WHERE person_id = NEW.person_id
+                                AND effective_date = NEW.effective_date
+                                AND entered_at = NEW.entered_at)
+        THEN RAISE(ABORT, 'rate_bill: duplicate (person_id, effective_date, entered_at)') END;
 END;
 
 -- ---------------------------------------------------------------------------
--- config — key/value. Keys are seeded; value NULL means UNSET.
--- UNSET is a first-class, visible state: the dashboard flags
--- "OT threshold unset — bookkeeper advises". Values are NEVER defaulted.
--- Config changes are audit-logged by the app.
+-- ot_policy — effective-dated OT policy, on the rate_pay pattern. OT is
+-- policy history, not a mutable scalar: each week's OT computes under the
+-- policy in force at that week's start; weeks with no policy in force render
+-- blank + flagged; OT columns in reports/exports carry the threshold value
+-- applied. Changing policy is always a NEW row, so re-running a past date
+-- range reproduces the figures generated under the policy in force then.
+-- Ships EMPTY (no policy in force — dashboard flags "no OT policy in force —
+-- bookkeeper advises"); never defaulted.
+-- threshold_hours/multiplier are quantities (not money) stored exactly as
+-- entered (SOURCE); app-layer derivations use decimal arithmetic.
+-- No partial policy rows: threshold and multiplier are both required on
+-- every row — "no policy in force" is represented only by row ABSENCE.
+-- Append-only.
+-- ---------------------------------------------------------------------------
+CREATE TABLE ot_policy (
+    id              INTEGER PRIMARY KEY,
+    threshold_hours NUMERIC NOT NULL
+                    CHECK (threshold_hours > 0 AND threshold_hours <= 168),
+    threshold_tag   TEXT    NOT NULL DEFAULT 'SOURCE'
+                    REFERENCES figure_tag(tag) CHECK (threshold_tag = 'SOURCE'),
+    multiplier      NUMERIC NOT NULL
+                    CHECK (multiplier > 0),
+    multiplier_tag  TEXT    NOT NULL DEFAULT 'SOURCE'
+                    REFERENCES figure_tag(tag) CHECK (multiplier_tag = 'SOURCE'),
+    effective_date  TEXT    NOT NULL CHECK (effective_date IS date(effective_date)),
+    entered_by      INTEGER NOT NULL REFERENCES person(id),
+    entered_at      TEXT    NOT NULL                  -- UTC
+);
+
+-- UNIQUE: an identical-timestamp duplicate would make v_ot_policy_effective
+-- return two rows for one effective_date and double-count downstream.
+CREATE UNIQUE INDEX idx_ot_policy ON ot_policy (effective_date, entered_at);
+
+CREATE TRIGGER trg_ot_policy_no_update BEFORE UPDATE ON ot_policy
+BEGIN SELECT RAISE(ABORT, 'ot_policy is append-only'); END;
+CREATE TRIGGER trg_ot_policy_no_delete BEFORE DELETE ON ot_policy
+BEGIN SELECT RAISE(ABORT, 'ot_policy is append-only'); END;
+CREATE TRIGGER trg_ot_policy_no_replace BEFORE INSERT ON ot_policy
+BEGIN
+    SELECT CASE WHEN NEW.id IS NOT NULL
+                 AND EXISTS (SELECT 1 FROM ot_policy WHERE id = NEW.id)
+        THEN RAISE(ABORT, 'ot_policy: INSERT would replace an existing row') END;
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM ot_policy
+                              WHERE effective_date = NEW.effective_date
+                                AND entered_at = NEW.entered_at)
+        THEN RAISE(ABORT, 'ot_policy: duplicate (effective_date, entered_at)') END;
+END;
+
+-- ---------------------------------------------------------------------------
+-- config — key/value for settings (not figures; OT policy lives in the
+-- append-only ot_policy table above). Keys are seeded; value NULL means
+-- UNSET — a first-class, visible state, NEVER defaulted. Config changes are
+-- audit-logged by the app.
+-- workweek_start_dow is set once at go-live (Monday, per operator, once
+-- confirmed against payroll practice — not hard-coded here); changing it
+-- mid-history is out of scope for V1 (stated in README).
 -- pay_period_anchor is reserved for later (additive) and unused in V1.
 -- ---------------------------------------------------------------------------
 CREATE TABLE config (
     key        TEXT PRIMARY KEY,
     value      TEXT,                                    -- NULL = unset
-    -- figure-valued keys (OT threshold, OT multiplier) carry their tag so
-    -- every screen/report/export that renders them shows it; switches and
-    -- anchors are settings, not figures, and carry NULL
+    -- V1 ships no figure-valued config keys; the tag column exists so a
+    -- future figure-valued key cannot ship untagged. Switches and anchors
+    -- are settings, not figures, and carry NULL.
     value_tag  TEXT REFERENCES figure_tag(tag),
     updated_by INTEGER REFERENCES person(id),
     updated_at TEXT
 ) WITHOUT ROWID;
 
 INSERT INTO config (key, value, value_tag) VALUES
-    ('ot_threshold_hours_per_week', NULL, 'SOURCE'),  -- ships UNSET; bookkeeper
-                                                      -- advises, admin enters
-    ('ot_multiplier',               NULL, 'SOURCE'),  -- ships UNSET
-    ('ot_pay_preview_enabled',      '0',  NULL),      -- default off (a switch, not a figure)
-    ('workweek_start_dow',          NULL, NULL),      -- ships UNSET; see GATE1.md open question
-    ('pay_period_anchor',           NULL, NULL);      -- reserved; unused in V1
+    ('ot_pay_preview_enabled', '0',  NULL),   -- default off (a switch, not a
+                                              -- figure); even enabled, the
+                                              -- preview needs an OT policy in
+                                              -- force for the period
+    ('workweek_start_dow',     NULL, NULL),   -- ships UNSET; set at go-live
+    ('pay_period_anchor',      NULL, NULL);   -- reserved; unused in V1
 
 CREATE TRIGGER trg_config_no_delete BEFORE DELETE ON config
 BEGIN SELECT RAISE(ABORT, 'config keys are never deleted; set value = NULL to unset'); END;
@@ -521,6 +633,20 @@ BEGIN
     SELECT CASE WHEN NEW.id IS NOT NULL
                  AND EXISTS (SELECT 1 FROM entry_flag WHERE id = NEW.id)
         THEN RAISE(ABORT, 'entry_flag: INSERT would replace an existing row') END;
+END;
+
+-- Coherence: the flag's entry_uuid must be the uuid of the version row it
+-- points at — a mismatched flag would badge (and gate approval of) the
+-- wrong entry. IS NOT (not <>) so a dangling trigger_version_id also aborts
+-- even on a connection without foreign_keys enabled.
+CREATE TRIGGER trg_entry_flag_uuid_coherent
+BEFORE INSERT ON entry_flag
+BEGIN
+    SELECT CASE WHEN NEW.entry_uuid IS NOT
+            (SELECT entry_uuid FROM time_entry_version
+              WHERE id = NEW.trigger_version_id)
+        THEN RAISE(ABORT, 'entry_flag: entry_uuid does not match trigger_version_id')
+    END;
 END;
 
 CREATE TRIGGER trg_entry_flag_immutable_core
@@ -753,6 +879,19 @@ JOIN (SELECT person_id, effective_date, MAX(entered_at) AS latest_entry
   ON latest.person_id     = rb.person_id
  AND latest.effective_date = rb.effective_date
  AND latest.latest_entry   = rb.entered_at;
+
+-- OT policy history, latest entered_at per effective_date wins. The app
+-- resolves "policy in force for a week" as the row with the greatest
+-- effective_date <= that week's start date; no row => OT figures blank +
+-- flagged for that week. Re-running a past range reproduces past figures
+-- because rows are append-only and same-date corrections keep both rows.
+CREATE VIEW v_ot_policy_effective AS
+SELECT op.*
+FROM ot_policy AS op
+JOIN (SELECT effective_date, MAX(entered_at) AS latest_entry
+        FROM ot_policy GROUP BY effective_date) AS latest
+  ON latest.effective_date = op.effective_date
+ AND latest.latest_entry   = op.entered_at;
 
 -- Open flags per entry, for list badges and the flag review queue.
 CREATE VIEW v_open_flags AS
