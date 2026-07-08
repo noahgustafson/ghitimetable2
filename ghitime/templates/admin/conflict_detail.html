@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Conflict {{ c.id }}{% endblock %}
+{% block content %}
+<h1>Sync conflict #{{ c.id }}</h1>
+<div class="cols">
+  <section class="card">
+    <h2>Server (authoritative)</h2>
+    <table>
+      {% for k in ('work_date','start_time','end_time','break_minutes','note','job_id','status') %}
+      <tr><th>{{ k }}</th><td>{{ server_row[k] }}</td></tr>
+      {% endfor %}
+      <tr><th>recorded</th><td class="mono">{{ server_row.server_synced_at }}</td></tr>
+    </table>
+  </section>
+  <section class="card">
+    <h2>Device payload (rejected, preserved verbatim)</h2>
+    <table>
+      {% for k, v in device_payload.items() %}
+      <tr><th>{{ k }}</th><td>{{ v }}</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</div>
+<form method="post" action="{{ url_for('admin.conflict_resolve', cid=c.id) }}" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label>Resolution note (required) <input name="note" required></label>
+  <button class="primary">Mark resolved</button>
+  <p class="muted">If the device was right, have the worker (or you) append a
+  new version with the correct values — history is never rewritten.</p>
+</form>
+{% endblock %}

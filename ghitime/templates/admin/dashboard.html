@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Admin — GHI-TIME{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+<nav class="subnav">
+  <a href="{{ url_for('admin.queue') }}">Approval queue ({{ pending }})</a>
+  <a href="{{ url_for('admin.flags_queue') }}">Flags</a>
+  <a href="{{ url_for('admin.conflicts') }}">Sync conflicts ({{ open_conflicts }})</a>
+  <a href="{{ url_for('admin.people') }}">People</a>
+  <a href="{{ url_for('admin.jobs') }}">Jobs</a>
+  <a href="{{ url_for('reports.hub') }}">Reports</a>
+  <a href="{{ url_for('reports.export_hub') }}">Exports</a>
+  <a href="{{ url_for('admin.config_page') }}">Settings</a>
+  <a href="{{ url_for('admin.audit_view') }}">Audit log</a>
+  <a href="{{ url_for('admin.sync_status') }}">Phone sync</a>
+</nav>
+
+{% if not policy %}
+<p class="error big">⚠ No OT policy in force — bookkeeper advises. OT figures
+stay blank until a policy row is added in Settings.</p>
+{% endif %}
+{% if workweek is none %}
+<p class="warn">Workweek start not set — weekly OT cannot compute; totals use
+Mon–Sun display grouping only. Set it in Settings at go-live.</p>
+{% endif %}
+
+<section class="card">
+  <h2>Backups</h2>
+  <p>Last successful backup:
+    {% if last_backup %}<strong class="mono">{{ last_backup.at }}</strong>
+    {% else %}<em class="error">never recorded</em>{% endif %}</p>
+  <p>Last restore-verification:
+    {% if last_verify %}<span class="mono">{{ last_verify.at }}</span>
+      {{ 'OK' if last_verify.ok else 'FAILED' }}
+    {% else %}<em class="warn">never recorded</em>{% endif %}</p>
+</section>
+
+<section class="card">
+  <h2>Unsubmitted drafts by person</h2>
+  <table><tr><th>Person</th><th>Drafts</th></tr>
+  {% for r in unsubmitted %}<tr><td>{{ r.display_name }}</td><td>{{ r.n }}</td></tr>
+  {% else %}<tr><td colspan="2" class="muted">none</td></tr>{% endfor %}</table>
+</section>
+
+<section class="card">
+  <h2>Open flags</h2>
+  <table><tr><th>Type</th><th>Count</th></tr>
+  {% for r in open_flags %}<tr><td>{{ r.flag_type }}</td><td>{{ r.n }}</td></tr>
+  {% else %}<tr><td colspan="2" class="muted">none</td></tr>{% endfor %}</table>
+</section>
+
+<section class="card">
+  <h2>Phones — last sync</h2>
+  <table><tr><th>Person</th><th>Device</th><th>Last sync (UTC)</th></tr>
+  {% for r in sync_status %}<tr><td>{{ r.display_name }}</td>
+    <td class="mono">{{ r.device_id or '?' }}</td><td class="mono">{{ r.last_sync }}</td></tr>
+  {% else %}<tr><td colspan="3" class="muted">no syncs yet</td></tr>{% endfor %}</table>
+</section>
+{% endblock %}

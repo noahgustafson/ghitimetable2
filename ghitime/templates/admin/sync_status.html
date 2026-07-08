@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Phone sync status{% endblock %}
+{% block content %}
+<h1>Phone sync status</h1>
+<table>
+  <tr><th>Person</th><th>Device</th><th>Last sync (UTC)</th><th>Accepted</th>
+      <th>Duplicates</th><th>Conflicts</th><th>Rejected</th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.display_name }}</td><td class="mono">{{ r.device_id or '?' }}</td>
+      <td class="mono">{{ r.last_sync }}</td><td>{{ r.accepted }}</td>
+      <td>{{ r.duplicates }}</td><td>{{ r.conflicts }}</td><td>{{ r.rejected }}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">No syncs recorded yet.</td></tr>{% endfor %}
+</table>
+<p class="muted">Duplicates are harmless (same entry re-sent — idempotent).
+Conflicts need review. A phone that hasn't synced in days may be holding
+entries — have its owner open the Capture page anywhere with signal.</p>
+{% endblock %}

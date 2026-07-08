@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="muted">{{ dfrom }} → {{ dto }} ·
+  <a href="{{ request.path }}.csv?{{ request.query_string.decode() }}">CSV</a></p>
+<table>
+  <tr>{% for h in header %}<th>{{ h }}</th>{% endfor %}</tr>
+  {% for row in rows %}
+  <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+  {% else %}<tr><td colspan="{{ header | length }}" class="muted">no data in range</td></tr>{% endfor %}
+</table>
+{% endblock %}

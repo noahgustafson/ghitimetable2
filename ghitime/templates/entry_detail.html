@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Entry {{ cur.work_date }}{% endblock %}
+{% block content %}
+<h1>Entry — {{ cur.work_date }}
+  <span class="status status-{{ cur.status }}">{{ cur.status }}</span></h1>
+<p class="muted mono">{{ cur.entry_uuid }}</p>
+
+{% if editable %}
+<form method="post" action="{{ url_for('entries.entry_edit', entry_uuid=cur.entry_uuid) }}"
+      class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label>Date <input type="date" name="work_date" value="{{ cur.work_date }}" max="{{ today }}" required></label>
+  <label>Job
+    <select name="job_id" required>
+      {% for j in jobs %}<option value="{{ j.id }}" {% if j.id == cur.job_id %}selected{% endif %}>
+        {{ j.code }} — {{ j.name }}</option>{% endfor %}
+    </select></label>
+  <label>Start <input type="time" name="start_time" value="{{ cur.start_time }}" required></label>
+  <label>End <input type="time" name="end_time" value="{{ cur.end_time }}" required></label>
+  <label>Break (minutes) <input type="number" name="break_minutes" min="0" max="1440"
+         value="{{ cur.break_minutes }}" required></label>
+  <label>Note <input name="note" value="{{ cur.note or '' }}" maxlength="2000"></label>
+  <label>Reason for this change (required)
+    <input name="change_reason" required></label>
+  <button class="primary">Save new version</button>
+</form>
+{% if cur.status == 'draft' %}
+<form method="post" action="{{ url_for('entries.entry_void', entry_uuid=cur.entry_uuid) }}"
+      class="inline">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <input name="change_reason" placeholder="reason to void" required>
+  <button class="danger">Void this draft</button>
+</form>
+{% endif %}
+{% endif %}
+
+<h2>Flags</h2>
+<ul>
+{% for f in all_flags %}
+  <li><span class="badge">{{ f.flag_type }}</span> raised {{ f.created_at }}
+    {% if f.resolved_at %}<span class="muted">resolved {{ f.resolved_at }}:
+      {{ f.resolution_reason }}</span>{% else %}<strong>open</strong>{% endif %}</li>
+{% else %}<li class="muted">none</li>{% endfor %}
+</ul>
+
+<h2>History (every version, oldest first)</h2>
+<table>
+  <tr><th>v</th><th>Recorded (UTC)</th><th>Status</th><th>Date</th><th>Times</th>
+      <th>Break</th><th>Note</th><th>Author</th><th>Reason</th></tr>
+  {% for v in hist %}
+  <tr>
+    <td>{{ v.version_no }}</td><td class="mono">{{ v.server_synced_at }}</td>
+    <td>{{ v.status }}</td><td>{{ v.work_date }}</td>
+    <td>{{ v.start_time }}–{{ v.end_time }}</td><td>{{ v.break_minutes }}m</td>
+    <td>{{ v.note or '' }}</td><td>{{ v.author_id }}</td>
+    <td>{{ v.change_reason or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Approvals</h2>
+<ul>
+{% for a in approvals %}
+  <li>{{ a.action }} by {{ a.approver }} at {{ a.created_at }}
+    {% if a.is_self_approval %}<span class="badge">SELF-APPROVED</span>{% endif %}
+    {% if a.reason %}— {{ a.reason }}{% endif %}
+    {% if a.flags_ack_reason %}<span class="muted">(flags acknowledged:
+      {{ a.flags_ack_reason }})</span>{% endif %}</li>
+{% else %}<li class="muted">none yet</li>{% endfor %}
+</ul>
+{% endblock %}

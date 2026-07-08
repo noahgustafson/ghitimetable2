@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Reports</h1>
+<p class="muted">Every figure carries its tag. Money is admin-only. Report
+titles never contain "margin" or "profit" — only labor cost is captured.</p>
+<ul>
+  <li><a href="{{ url_for('reports.hours') }}?group=person&period=week">Hours by person (weekly)</a></li>
+  <li><a href="{{ url_for('reports.hours') }}?group=job&period=month">Hours by job (monthly)</a></li>
+  <li><a href="{{ url_for('reports.hours') }}?group=person_job&period=week">Hours person × job</a></li>
+  <li><a href="{{ url_for('reports.ot_report') }}">Weekly OT hours past threshold</a></li>
+  <li><a href="{{ url_for('reports.labor') }}?basis=pay">Labor cost (pay)</a></li>
+  <li><a href="{{ url_for('reports.labor') }}?basis=bill">Billable labor (bill)</a></li>
+</ul>
+<p class="muted">Rollups: add <code>&period=day|week|month|quarter|year</code>
+and <code>&from=YYYY-MM-DD&to=YYYY-MM-DD</code> to any report URL; append
+<code>.csv</code> for the CSV twin.</p>
+{% endblock %}

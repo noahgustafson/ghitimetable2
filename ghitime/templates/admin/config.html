@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<form method="post" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label class="inline"><input type="checkbox" name="ot_pay_preview_enabled"
+    {% if cfg['ot_pay_preview_enabled'].value == '1' %}checked{% endif %}>
+    OT pay preview column in exports (still a preview — payroll stays the
+    bookkeeper's)</label>
+  <label>Workweek start day
+    <select name="workweek_start_dow">
+      <option value="">— unset (OT stays blank + flagged) —</option>
+      {% for i, name in [(0,'Monday'),(1,'Tuesday'),(2,'Wednesday'),(3,'Thursday'),
+                         (4,'Friday'),(5,'Saturday'),(6,'Sunday')] %}
+      <option value="{{ i }}" {% if cfg['workweek_start_dow'].value == i|string %}selected{% endif %}>
+        {{ name }}</option>
+      {% endfor %}
+    </select>
+    <span class="muted">set once at go-live; changing it mid-history is out of
+      scope for V1 (see README)</span></label>
+  <button class="primary">Save settings</button>
+</form>
+
+<section class="card">
+  <h2>OT policy history <span class="tag">SOURCE</span></h2>
+  <p class="muted">Effective-dated and append-only: each week's OT computes
+  under the policy in force at that week's start. Changing policy is always a
+  new row — past exports stay reproducible. Weeks before the first row render
+  blank + flagged.</p>
+  <table>
+    <tr><th>Effective</th><th>Threshold h/wk</th><th>Tag</th><th>Multiplier</th>
+        <th>Tag</th><th>Entered (UTC)</th></tr>
+    {% for r in policy_hist %}
+    <tr><td>{{ r.effective_date }}</td><td>{{ r.threshold_hours }}</td>
+        <td><span class="tag">{{ r.threshold_tag }}</span></td>
+        <td>{{ r.multiplier }}</td><td><span class="tag">{{ r.multiplier_tag }}</span></td>
+        <td class="mono">{{ r.entered_at }}</td></tr>
+    {% else %}
+    <tr><td colspan="6" class="error">NO POLICY IN FORCE — bookkeeper advises;
+      OT figures are blank everywhere until a row exists.</td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('admin.ot_policy_append') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="threshold_hours" placeholder="40" required>
+    <input name="multiplier" placeholder="1.5" required>
+    <input type="date" name="effective_date" required>
+    <button>Append policy row</button>
+  </form>
+</section>
+{% endblock %}

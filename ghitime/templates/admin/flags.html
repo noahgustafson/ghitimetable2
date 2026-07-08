@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Flag review{% endblock %}
+{% block content %}
+<h1>Flag review queue</h1>
+<form method="get" class="filters">
+  <select name="type">
+    <option value="">all types</option>
+    {% for t in types %}<option value="{{ t }}" {% if ftype == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+  </select>
+  <button>Filter</button>
+</form>
+<table>
+  <tr><th>Raised</th><th>Type</th><th>Person</th><th>Date</th><th>Times</th>
+      <th>Status</th><th>Detail</th><th>Resolve</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="mono">{{ r.created_at }}</td>
+    <td><span class="badge">{{ r.flag_type }}</span></td>
+    <td>{{ r.person_name }}</td><td>{{ r.work_date }}</td>
+    <td>{{ r.start_time }}–{{ r.end_time }}</td><td>{{ r.status }}</td>
+    <td class="mono">{{ r.detail or '' }}</td>
+    <td>
+      <form method="post" action="{{ url_for('admin.flag_resolve', flag_id=r.id) }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input name="reason" placeholder="reason (required)" required>
+        <button>Resolve</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="muted">No open flags.</td></tr>{% endfor %}
+</table>
+{% endblock %}

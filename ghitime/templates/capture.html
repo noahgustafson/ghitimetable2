@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Capture — GHI-TIME{% endblock %}
+{% block content %}
+<h1>Time capture <span id="net-state" class="badge"></span></h1>
+<p class="muted">Works offline. Entries wait in this phone's outbox until they
+sync; the server is always the source of truth.</p>
+
+<div id="outbox-warning" class="warn" hidden>
+  You have <span id="pending-big">0</span> unsynced entries. iPhones can evict
+  offline storage — sync soon (open the app anywhere with signal).
+</div>
+
+<form id="capture-form" class="card narrow">
+  <input type="hidden" id="edit-uuid" value="">
+  <label>Date <input type="date" id="f-date" value="{{ today }}" max="{{ today }}" required>
+    <span class="muted">backdating fine; future blocked</span></label>
+  <label>Job <select id="f-job" required></select>
+    <span class="muted" id="jobs-asof">job list as of {{ as_of }}</span></label>
+  <label>Start <input type="time" id="f-start" required></label>
+  <label>End <input type="time" id="f-end" required></label>
+  <label>Break (minutes — 0 if none) <input type="number" id="f-break" min="0" max="1440" required></label>
+  <label>Note <input id="f-note" maxlength="2000"></label>
+  <button class="primary" type="submit">Save to outbox</button>
+  <button type="button" id="f-cancel" hidden>Cancel edit</button>
+</form>
+
+<section class="card">
+  <h2>Outbox — <span id="pending-count">0</span> pending
+    <button id="sync-now" class="button">Sync now</button></h2>
+  <ul id="outbox-list"></ul>
+</section>
+
+<script>
+window.GHITIME_BOOT = {
+  today: {{ today | tojson }},
+  jobs: {{ jobs | map(attribute='id') | list | tojson }} ,
+  jobsFull: [{% for j in jobs %}{"id": {{ j.id }}, "code": {{ j.code | tojson }},
+    "name": {{ j.name | tojson }}}{% if not loop.last %},{% endif %}{% endfor %}],
+  jobsAsOf: {{ as_of | tojson }}
+};
+</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='capture.js') }}"></script>
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+</script>
+{% endblock %}

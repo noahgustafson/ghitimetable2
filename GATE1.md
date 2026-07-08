@@ -5,7 +5,7 @@ immutability, uuid/version coherence, effective-dated ot_policy) — applied
 below; schema diff awaiting operator confirmation before Gate 2 begins. No
 application code has been written.**
 
-This document accompanies [`schema.sql`](schema.sql) and contains the full
+This document accompanies [`migrations/001_init.sql`](migrations/001_init.sql) and contains the full
 route list, the screen list, the design decisions embedded in the schema, and
 the open questions that need an operator answer before or during Gate 2.
 

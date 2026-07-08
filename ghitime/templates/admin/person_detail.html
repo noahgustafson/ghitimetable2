@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ p.display_name }}{% endblock %}
+{% block content %}
+<h1>{{ p.display_name }} <span class="muted mono">{{ p.username }}</span></h1>
+<p><a class="button" href="{{ url_for('admin.person_record', pid=p.id) }}">Record printout</a>
+   <a class="button" href="{{ url_for('admin.person_record_csv', pid=p.id) }}">Record CSV</a></p>
+
+<form method="post" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label class="inline"><input type="checkbox" name="is_worker" {% if p.is_worker %}checked{% endif %}> worker</label>
+  <label class="inline"><input type="checkbox" name="is_admin" {% if p.is_admin %}checked{% endif %}> admin</label>
+  <label class="inline"><input type="checkbox" name="active" {% if p.active %}checked{% endif %}> active</label>
+  <label>Type
+    <select name="worker_type">
+      <option value="employee" {% if p.worker_type == 'employee' %}selected{% endif %}>employee</option>
+      <option value="subcontractor" {% if p.worker_type == 'subcontractor' %}selected{% endif %}>subcontractor</option>
+    </select></label>
+  <button class="primary">Save</button>
+</form>
+
+<form method="post" action="{{ url_for('admin.person_password', pid=p.id) }}" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label>Reset password — temp (8+ chars, forced change; signs out all their
+    devices — this is the lost-phone remedy) <input name="temp_password" minlength="8" required></label>
+  <button class="danger">Reset password</button>
+</form>
+
+<div class="cols">
+<section class="card">
+  <h2>Pay rate (worker can see this)</h2>
+  <table><tr><th>Effective</th><th>Rate</th><th>Tag</th></tr>
+  {% for r in pay_hist %}<tr><td>{{ r.effective_date }}</td>
+    <td>${{ cents(r.hourly_rate_cents) }}</td><td><span class="tag">{{ r.rate_tag }}</span></td></tr>
+  {% else %}<tr><td colspan="3" class="warn">no pay rate — figures render blank + flagged</td></tr>{% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('admin.rate_pay', pid=p.id) }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="rate" placeholder="28.50" required>
+    <input type="date" name="effective_date" required>
+    <button>Add pay rate</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Bill rate (admin-only — never shown to workers)</h2>
+  <table><tr><th>Effective</th><th>Rate</th><th>Tag</th></tr>
+  {% for r in bill_hist %}<tr><td>{{ r.effective_date }}</td>
+    <td>${{ cents(r.hourly_rate_cents) }}</td><td><span class="tag">{{ r.rate_tag }}</span></td></tr>
+  {% else %}<tr><td colspan="3" class="muted">none</td></tr>{% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('admin.rate_bill', pid=p.id) }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="rate" placeholder="65.00" required>
+    <input type="date" name="effective_date" required>
+    <button>Add bill rate</button>
+  </form>
+</section>
+</div>
+{% endblock %}

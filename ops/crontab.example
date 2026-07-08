@@ -1,0 +1,14 @@
+# GHI-TIME host crontab (install with: crontab ops/crontab.example after
+# editing paths). No maintenance task runs on a shorter cycle than daily.
+#
+# /etc/ghitime-backup.env should export:
+#   GHITIME_DB=/opt/ghitime/data/ghitime.db
+#   GHITIME_BACKUP_DIR=/opt/ghitime/backups
+#   RESTIC_REPOSITORY=...        (e.g. sftp:backup@nas:/ghitime or b2:bucket)
+#   RESTIC_PASSWORD_FILE=/etc/ghitime-restic.pass
+
+# nightly 01:30 — WAL checkpoint + .backup snapshot + restic offsite
+30 1 * * *  . /etc/ghitime-backup.env && /opt/ghitime/ops/backup.sh >> /var/log/ghitime-backup.log 2>&1
+
+# weekly Sunday 02:30 — restore the latest backup and verify it
+30 2 * * 0  . /etc/ghitime-backup.env && /opt/ghitime/ops/restore-verify.sh >> /var/log/ghitime-backup.log 2>&1

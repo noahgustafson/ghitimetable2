@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}My rate{% endblock %}
+{% block content %}
+<h1>My pay rate</h1>
+{% if current is not none %}
+<p class="big">${{ cents(current) }}/h <span class="tag">SOURCE</span></p>
+{% else %}
+<p class="warn">No pay rate on file yet — ask the office.</p>
+{% endif %}
+<h2>History</h2>
+<table>
+  <tr><th>Effective</th><th>Rate</th><th>Tag</th><th>Entered (UTC)</th></tr>
+  {% for r in hist %}
+  <tr><td>{{ r.effective_date }}</td><td>${{ cents(r.hourly_rate_cents) }}</td>
+      <td><span class="tag">{{ r.rate_tag }}</span></td><td class="mono">{{ r.entered_at }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">none</td></tr>{% endfor %}
+</table>
+<p class="muted">A raise never rewrites the past — old rates stay on record.</p>
+{% endblock %}

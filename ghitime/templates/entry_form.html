@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}New entry{% endblock %}
+{% block content %}
+<h1>New time entry</h1>
+<form method="post" action="{{ url_for('entries.entry_create') }}" class="card narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <label>Date <input type="date" name="work_date" value="{{ today }}" max="{{ today }}" required>
+    <span class="muted">backdating is fine; future dates are not</span></label>
+  <label>Job
+    <select name="job_id" required>
+      {% for j in jobs %}<option value="{{ j.id }}">{{ j.code }} — {{ j.name }}</option>{% endfor %}
+    </select></label>
+  <label>Start <input type="time" name="start_time" required></label>
+  <label>End <input type="time" name="end_time" required></label>
+  <label>Break (minutes — enter 0 if none; it is never assumed)
+    <input type="number" name="break_minutes" min="0" max="1440" required></label>
+  <label>Note <input name="note" maxlength="2000"></label>
+  <button class="primary">Save draft</button>
+</form>
+<p class="muted">Overnight shift? Split it at midnight into two entries — the
+system never adds a day for you.</p>
+{% endblock %}

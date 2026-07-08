@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Home — GHI-TIME{% endblock %}
+{% block content %}
+<h1>Hi, {{ user.display_name.split(' ')[0] }}</h1>
+
+<section class="card">
+  <h2>This week ({{ week_start }} – {{ week_end }}){% if week_display_only %}
+    <span class="badge">display grouping Mon–Sun — workweek not set yet</span>{% endif %}</h2>
+  <p class="big">{{ week_hours }} h <span class="tag">CALCULATED</span></p>
+  {% if week_blank_count %}
+    <p class="warn">{{ week_blank_count }} entr{{ 'y has' if week_blank_count == 1 else 'ies have' }}
+      a blank duration (flagged) — not counted, never guessed.</p>
+  {% endif %}
+  {% if rate_cents is not none %}
+    <p>Gross preview: <strong>${{ cents(gross_preview_cents) }}</strong>
+      <span class="tag">CALCULATED</span>
+      <span class="muted">hours × rate — a preview; actual pay is the bookkeeper's.</span></p>
+  {% else %}
+    <p class="warn">Gross preview: <em>blank</em> — no pay rate on file for you yet.</p>
+  {% endif %}
+  {% if ot_policy %}
+    <p>OT past {{ ot_policy.threshold_hours }} h:
+      <strong>{{ ot_hours }}</strong> h <span class="tag">CALCULATED</span></p>
+  {% elif not week_display_only %}
+    <p class="warn">OT: <em>blank</em> — no OT policy in force.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <p><strong>{{ unsubmitted }}</strong> unsubmitted entr{{ 'y' if unsubmitted == 1 else 'ies' }} through today.</p>
+  <a class="button primary" href="{{ url_for('entries.submit_confirm') }}">Submit my hours…</a>
+  <a class="button" href="{{ url_for('entries.entry_new') }}">New entry</a>
+  <a class="button" href="{{ url_for('entries.capture') }}">Offline capture</a>
+</section>
+
+{% if open_flags %}
+<section class="card">
+  <h2>Flags on your entries</h2>
+  <ul>
+  {% for f in open_flags %}
+    <li><a href="{{ url_for('entries.entry_detail', entry_uuid=f.entry_uuid) }}">
+      {{ f.flag_type }}</a> <span class="muted">{{ f.created_at }}</span></li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}
