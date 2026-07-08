@@ -214,6 +214,24 @@ assert 'ot_threshold_hours_per_week' not in keys and 'ot_multiplier' not in keys
 assert {'ot_pay_preview_enabled', 'workweek_start_dow', 'pay_period_anchor'} <= keys, keys
 print("  ok: OT scalars removed from config; preview switch / workweek / anchor keys remain")
 
+print("UNIQUE effective-date keys (identical-timestamp duplicates rejected):")
+expect_abort("rate_pay duplicate (person_id, effective_date, entered_at)",
+             "INSERT INTO rate_pay (person_id, hourly_rate_cents, effective_date, entered_by, entered_at) VALUES (2,3000,'2026-01-01',1,'2026-07-07T02:00:00Z')")
+expect_ok("rate_pay same date, later entered_at (correction)",
+          "INSERT INTO rate_pay (person_id, hourly_rate_cents, effective_date, entered_by, entered_at) VALUES (2,3000,'2026-01-01',1,'2026-07-07T02:00:01Z')")
+rows = db.execute("SELECT hourly_rate_cents FROM v_rate_pay_effective WHERE person_id=2 AND effective_date='2026-01-01'").fetchall()
+assert rows == [(3000,)], f"effective view must return exactly one row per date: {rows}"
+print("  ok: v_rate_pay_effective returns exactly one row per (person, date) -> 3000")
+db.execute("INSERT INTO rate_bill (person_id, hourly_rate_cents, effective_date, entered_by, entered_at) VALUES (2,5500,'2026-01-01',1,'2026-07-07T02:00:00Z')")
+expect_abort("rate_bill duplicate (person_id, effective_date, entered_at)",
+             "INSERT INTO rate_bill (person_id, hourly_rate_cents, effective_date, entered_by, entered_at) VALUES (2,6000,'2026-01-01',1,'2026-07-07T02:00:00Z')")
+expect_abort("ot_policy duplicate (effective_date, entered_at)",
+             "INSERT INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (50,2.0,'2026-01-05',1,'2026-07-07T06:04:00Z')")
+expect_abort("INSERT OR REPLACE via duplicate natural key (recursive_triggers OFF)",
+             "INSERT OR REPLACE INTO ot_policy (threshold_hours, multiplier, effective_date, entered_by, entered_at) VALUES (50,2.0,'2026-01-05',1,'2026-07-07T06:04:00Z')")
+assert db.execute("SELECT COUNT(*) FROM v_ot_policy_effective WHERE effective_date='2026-01-05'").fetchone()[0] == 1
+print("  ok: v_ot_policy_effective returns exactly one row per effective_date")
+
 tags = [r[0] for r in db.execute("SELECT tag FROM figure_tag ORDER BY tag")]
 assert tags == ['ALLOCATED','CALCULATED','ESTIMATED','EXTERNAL','SOURCE'], tags
 n_tables = db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]

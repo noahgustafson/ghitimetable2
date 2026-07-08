@@ -36,9 +36,9 @@ only the standard library). It becomes the seed of the Gate 2 pytest suite.
 | `time_entry_version` | the core: append-only entry versions | **UPDATE and DELETE blocked by triggers**; `version_no` must be contiguous (trigger); `change_reason` required from v2 on (CHECK); v1 must be `draft` (CHECK — a phone can never sync an entry into existence as approved); **`person_id` immutable across versions (trigger — an entry never changes owner; wrong-person entries are voided and re-entered; `job_id` stays changeable)** |
 | `submission` / `submission_entry` | attestation events + the exact versions attested | **append-only (triggers)** |
 | `approval` / `approval_entry` | approve/reject events; reject requires reason (CHECK); approving an entry with an open data-integrity flag requires `flags_ack_reason` (trigger — badge flags don't gate); `entry_uuid` must match the version rows referenced by `acted_on_version_id`/`resulting_version_id` (coherence trigger); self-approval flagged | **append-only (triggers)** |
-| `rate_pay` | effective-dated pay rates, worker-visible | **append-only** — a raise never rewrites the past |
-| `rate_bill` | effective-dated bill rates, admin-only | **append-only** |
-| `ot_policy` | effective-dated OT policy on the rate_pay pattern: `threshold_hours` (>0) + `multiplier` (>0), both required — no partial policy rows; "no policy in force" is represented only by row absence — with pinned SOURCE tags, `effective_date`, `entered_by`, `entered_at`. Each week's OT computes under the policy in force at that week's start; weeks with no policy in force render blank + flagged; OT columns carry the threshold applied; re-running a past range reproduces the figures generated under the policy in force then. Ships **empty** | **append-only (no_update / no_delete / no_replace triggers)** |
+| `rate_pay` | effective-dated pay rates, worker-visible | **append-only** — a raise never rewrites the past; UNIQUE (person, effective_date, entered_at) rejects identical-timestamp duplicates |
+| `rate_bill` | effective-dated bill rates, admin-only | **append-only**; same UNIQUE guard as rate_pay |
+| `ot_policy` | effective-dated OT policy on the rate_pay pattern: `threshold_hours` (>0) + `multiplier` (>0), both required — no partial policy rows; "no policy in force" is represented only by row absence — with pinned SOURCE tags, `effective_date`, `entered_by`, `entered_at`; UNIQUE (effective_date, entered_at) rejects identical-timestamp duplicates. Each week's OT computes under the policy in force at that week's start; weeks with no policy in force render blank + flagged; OT columns carry the threshold applied; re-running a past range reproduces the figures generated under the policy in force then. Ships **empty** | **append-only (no_update / no_delete / no_replace triggers)** |
 | `config` | settings only — figures live in `ot_policy`: `ot_pay_preview_enabled` ('0'; even enabled, the preview needs an OT policy in force for the period), `workweek_start_dow` (ships unset; set once at go-live — Monday per operator once confirmed against payroll practice; changing it mid-history out of scope for V1, stated in README), `pay_period_anchor` (reserved, unused) | value update allowed (audit-logged); **key DELETE blocked; key rename blocked** |
 | `entry_flag` | surfaced anomalies: overlap, >16h, duplicate, future-dated, end-not-after-start, break-exceeds-duration, plus badge types self_approval and post_approval_correction | core fields immutable (trigger); only resolution fields writable; resolution requires reason (CHECK); `entry_uuid` must match `trigger_version_id`'s uuid (coherence trigger — a mismatched flag can no longer badge or gate the wrong entry); **DELETE blocked** |
 | `sync_conflict` | same (uuid, version) with different payload — stored row wins, rejected payload preserved verbatim and surfaced | core fields immutable; **DELETE blocked** |
@@ -288,7 +288,14 @@ design).
    revokes a lost phone's session — the stated lost-phone threat.
 7. **Rate history keeps same-day corrections**: multiple rows per
    (person, effective_date) allowed; latest `entered_at` wins; nothing is
-   overwritten.
+   overwritten. `entered_at` must differ — UNIQUE effective-date indexes on
+   `rate_pay`, `rate_bill`, and `ot_policy` (operator condition at diff
+   confirmation, 2026-07-08) reject identical-timestamp duplicates, so the
+   effective views can never return two rows per date and double-count.
+   The `*_no_replace` triggers also guard these natural keys (an
+   INSERT OR REPLACE via the new UNIQUE key would otherwise displace the
+   existing row under default pragmas). Gate 2 stores `entered_at` with
+   sub-second precision so legitimate rapid corrections never collide.
 8. **Self-approval and post-approval corrections reuse `entry_flag`** as
    badge types (they don't clutter the review queue but travel with the entry
    onto printouts and exports through one mechanism).
@@ -375,7 +382,12 @@ Beyond the spec's original test list, the Gate 2 suite must prove:
    or after its effective date; re-running an export for a past range
    reproduces the same OT figures.
 5. **CI**: a GitHub Actions workflow runs `validate_schema.py` and the full
-   pytest suite on every PR to `main`.
+   pytest suite on every PR to `main`. This workflow is the FIRST Gate 2
+   commit.
+6. **`resulting_version_id` presence**: every approval path that creates a
+   version writes a non-NULL `resulting_version_id` linking it; paths that
+   create no version write NULL. (Per design decision 15 — the schema
+   proves match-when-set; presence is app-layer.)
 
 ---
 

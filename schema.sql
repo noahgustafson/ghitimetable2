@@ -424,6 +424,10 @@ END;
 -- rate_pay — effective-dated pay rates. Append-only: a raise never rewrites
 -- the past. Visible to that worker and admin (app layer).
 -- Multiple rows on one effective_date are allowed; latest entered_at wins.
+-- entered_at must differ (UNIQUE below): an identical-timestamp duplicate
+-- would make v_rate_pay_effective return two rows for one effective_date
+-- and double-count downstream. Gate 2 stores entered_at with sub-second
+-- precision so legitimate rapid corrections never collide.
 -- ---------------------------------------------------------------------------
 CREATE TABLE rate_pay (
     id                INTEGER PRIMARY KEY,
@@ -436,7 +440,7 @@ CREATE TABLE rate_pay (
     entered_at        TEXT    NOT NULL                   -- UTC
 );
 
-CREATE INDEX idx_rate_pay_person ON rate_pay (person_id, effective_date, entered_at);
+CREATE UNIQUE INDEX idx_rate_pay_person ON rate_pay (person_id, effective_date, entered_at);
 
 CREATE TRIGGER trg_rate_pay_no_update BEFORE UPDATE ON rate_pay
 BEGIN SELECT RAISE(ABORT, 'rate_pay is append-only'); END;
@@ -447,6 +451,13 @@ BEGIN
     SELECT CASE WHEN NEW.id IS NOT NULL
                  AND EXISTS (SELECT 1 FROM rate_pay WHERE id = NEW.id)
         THEN RAISE(ABORT, 'rate_pay: INSERT would replace an existing row') END;
+    -- also guards the UNIQUE natural key so INSERT OR REPLACE cannot
+    -- displace the existing row on a connection with default pragmas
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM rate_pay
+                              WHERE person_id = NEW.person_id
+                                AND effective_date = NEW.effective_date
+                                AND entered_at = NEW.entered_at)
+        THEN RAISE(ABORT, 'rate_pay: duplicate (person_id, effective_date, entered_at)') END;
 END;
 
 -- ---------------------------------------------------------------------------
@@ -465,7 +476,9 @@ CREATE TABLE rate_bill (
     entered_at        TEXT    NOT NULL                   -- UTC
 );
 
-CREATE INDEX idx_rate_bill_person ON rate_bill (person_id, effective_date, entered_at);
+-- UNIQUE for the same reason as rate_pay: v_rate_bill_effective has the
+-- same latest-entered_at tie-break and the same double-count failure mode.
+CREATE UNIQUE INDEX idx_rate_bill_person ON rate_bill (person_id, effective_date, entered_at);
 
 CREATE TRIGGER trg_rate_bill_no_update BEFORE UPDATE ON rate_bill
 BEGIN SELECT RAISE(ABORT, 'rate_bill is append-only'); END;
@@ -476,6 +489,11 @@ BEGIN
     SELECT CASE WHEN NEW.id IS NOT NULL
                  AND EXISTS (SELECT 1 FROM rate_bill WHERE id = NEW.id)
         THEN RAISE(ABORT, 'rate_bill: INSERT would replace an existing row') END;
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM rate_bill
+                              WHERE person_id = NEW.person_id
+                                AND effective_date = NEW.effective_date
+                                AND entered_at = NEW.entered_at)
+        THEN RAISE(ABORT, 'rate_bill: duplicate (person_id, effective_date, entered_at)') END;
 END;
 
 -- ---------------------------------------------------------------------------
@@ -508,7 +526,9 @@ CREATE TABLE ot_policy (
     entered_at      TEXT    NOT NULL                  -- UTC
 );
 
-CREATE INDEX idx_ot_policy ON ot_policy (effective_date, entered_at);
+-- UNIQUE: an identical-timestamp duplicate would make v_ot_policy_effective
+-- return two rows for one effective_date and double-count downstream.
+CREATE UNIQUE INDEX idx_ot_policy ON ot_policy (effective_date, entered_at);
 
 CREATE TRIGGER trg_ot_policy_no_update BEFORE UPDATE ON ot_policy
 BEGIN SELECT RAISE(ABORT, 'ot_policy is append-only'); END;
@@ -519,6 +539,10 @@ BEGIN
     SELECT CASE WHEN NEW.id IS NOT NULL
                  AND EXISTS (SELECT 1 FROM ot_policy WHERE id = NEW.id)
         THEN RAISE(ABORT, 'ot_policy: INSERT would replace an existing row') END;
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM ot_policy
+                              WHERE effective_date = NEW.effective_date
+                                AND entered_at = NEW.entered_at)
+        THEN RAISE(ABORT, 'ot_policy: duplicate (effective_date, entered_at)') END;
 END;
 
 -- ---------------------------------------------------------------------------
