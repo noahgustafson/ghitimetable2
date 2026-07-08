@@ -1,0 +1,45 @@
+name: Tag release
+
+# Repo-ops utility: creates an annotated release tag. Exists because the
+# managed environment's git proxy cannot push tag refs directly. Dispatched
+# manually with an explicit tag name and commit SHA; refuses to move or
+# replace an existing tag (pushed history is append-only).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name, e.g. v1.0.0"
+        required: true
+      sha:
+        description: "Full commit SHA on main to tag"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.payload.inputs.tag;
+            const sha = context.payload.inputs.sha;
+            if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error("tag must look like v1.2.3");
+            if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("sha must be a full 40-char SHA");
+            // append-only: never move an existing tag
+            try {
+              await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });
+              throw new Error(`tag ${tag} already exists; refusing to move it`);
+            } catch (e) {
+              if (e.status !== 404) throw e;
+            }
+            // tag only commits reachable from main
+            const cmp = await github.rest.repos.compareCommits({
+              ...context.repo, base: sha, head: "main" });
+            if (!["identical", "ahead"].includes(cmp.data.status))
+              throw new Error(`${sha} is not reachable from main (${cmp.data.status})`);
+            await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha });
+            core.notice(`created ${tag} -> ${sha}`);
