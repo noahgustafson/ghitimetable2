@@ -8,14 +8,28 @@ how it was verified, and every deviation.
 
 ## Provenance — declared prominently
 
-`origin/gate2-staging` did **not** exist at execution time. The six delivery
-commits on the `gate2` branch are the verified local sequence built in the
-same session that produced them (identical scope to the described staging:
-ci, core, app, tests, ops, seed-scrub atop the operator-verified schema head
-`5fe6305`). They were cherry-picked onto `main` (whose squash-merged tree is
-byte-identical to `5fe6305`'s tree — verified before picking), pushed
-normally, and never force-pushed. This is NOT a from-scratch rebuild; no
-work was lost or reconstructed.
+The six gate2 delivery commits are the fallback rebuild declared by the
+completion directive. `origin/gate2-staging` — described as holding the
+delivery — did **not** exist at execution time and was never pushed; the
+delivery was rebuilt in this session from GATE1.md and the commit manifest,
+per the directive's fallback clause.
+
+Equivalence of this rebuild to the unpushed local sequence that
+`gate2-staging` was to have held is **unverified**: no pushed artifact
+exists to compare against.
+
+The rebuild itself is independently verified:
+
+- CI green on both delivery runs
+  ([28942747500](https://github.com/noahgustafson/ghitimetable2/actions/runs/28942747500),
+  [28943146980](https://github.com/noahgustafson/ghitimetable2/actions/runs/28943146980));
+- operator-side reproduction of the 42/42 pytest result and the
+  `validate_schema.py` schema proof;
+- `migrations/001_init.sql` byte-identical to the operator-verified schema
+  at `5fe6305` (re-checked against `origin/main` before this correction was
+  committed).
+
+All pushes were normal and append-only; nothing was force-pushed.
 
 ## Test results
 
